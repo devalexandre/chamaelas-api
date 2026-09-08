@@ -1,0 +1,22 @@
+<h1>Usuárias</h1>
+<p class="subtitle">Passageiras cadastradas no Chama Elas.</p>
+
+<div class="card">
+  {{if not .Users}}
+    <p class="empty">Nenhuma usuária cadastrada ainda.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Nome</th><th>E-mail</th><th>Telefone</th><th>Cadastrada em</th></tr></thead>
+    <tbody>
+      {{range .Users}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Email}}</td>
+        <td>{{.Phone}}</td>
+        <td>{{.CreatedAt.Format "02/01/2006"}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

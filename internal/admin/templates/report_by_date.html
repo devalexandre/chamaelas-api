@@ -1,0 +1,53 @@
+<h1>Relatório por data</h1>
+<p class="subtitle">Todas as corridas feitas no período — não só as concluídas.</p>
+
+<form method="get" class="card form-row" style="align-items:flex-end; margin-bottom:1rem;">
+  <div class="field">
+    <label for="from">De</label>
+    <input id="from" name="from" type="date" value="{{.From}}">
+  </div>
+  <div class="field">
+    <label for="to">Até</label>
+    <input id="to" name="to" type="date" value="{{.To}}">
+  </div>
+  <button class="btn btn-primary" type="submit" style="width:auto; margin-bottom:0.9rem;">Filtrar</button>
+  <a class="btn btn-ghost" style="width:auto; margin-bottom:0.9rem;" href="/admin/reports/by-date/export?from={{.From}}&amp;to={{.To}}">⬇ Exportar CSV (Excel)</a>
+</form>
+
+<div class="stat-row">
+  <div class="stat-tile"><div class="value">{{.RideCount}}</div><div class="label">Corridas no período</div></div>
+  <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalPrice}}</div><div class="label">Soma dos valores iniciais</div></div>
+</div>
+
+<div class="card">
+  {{if not .Rows}}
+    <p class="empty">Nenhuma corrida no período selecionado.</p>
+  {{else}}
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th><th>Cliente</th><th>Motorista</th><th>Pagamento</th>
+        <th>Valor inicial</th><th>Valor final</th><th>Valor pago</th><th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+        <td>{{.CustomerName}}</td>
+        <td>{{if .DriverName}}{{.DriverName}}{{else}}—{{end}}</td>
+        <td>{{if .PaymentMethod}}{{.PaymentMethod}}{{else}}Não informado{{end}}</td>
+        <td>R$ {{printf "%.2f" .Price}}</td>
+        <td>{{if .FinalPrice}}R$ {{printf "%.2f" (derefF64 .FinalPrice)}}{{else}}—{{end}}</td>
+        <td>{{if .AmountPaid}}R$ {{printf "%.2f" (derefF64 .AmountPaid)}}{{else}}—{{end}}</td>
+        <td>
+          {{if eq .Status "completed"}}<span class="pill pill-approved">Concluída</span>{{end}}
+          {{if eq .Status "cancelled"}}<span class="pill pill-blocked">Cancelada</span>{{end}}
+          {{if not (or (eq .Status "completed") (eq .Status "cancelled"))}}<span class="pill pill-pending">{{.Status}}</span>{{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

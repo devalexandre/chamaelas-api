@@ -1,0 +1,42 @@
+<h1>Cidades</h1>
+<p class="subtitle">Onde o Chama Elas está disponível.</p>
+
+<div class="card">
+  <form method="post" action="/admin/cities">
+    <div class="form-row">
+      <div class="field">
+        <label for="name">Cidade</label>
+        <input id="name" name="name" placeholder="Ex: Campinas" required>
+      </div>
+      <div class="field" style="max-width:100px;">
+        <label for="uf">UF</label>
+        <input id="uf" name="uf" placeholder="SP" maxlength="2" required>
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Adicionar cidade</button>
+  </form>
+</div>
+
+<div class="card">
+  {{if not .Cities}}
+    <p class="empty">Nenhuma cidade cadastrada.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Cidade</th><th>UF</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {{range .Cities}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.UF}}</td>
+        <td>{{if .Active}}<span class="pill pill-active">Ativa</span>{{else}}<span class="pill pill-inactive">Inativa</span>{{end}}</td>
+        <td>
+          <form class="inline" method="post" action="/admin/cities/{{.ID}}/toggle">
+            <button class="btn btn-ghost btn-sm" type="submit">{{if .Active}}Desativar{{else}}Ativar{{end}}</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

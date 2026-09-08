@@ -1,0 +1,48 @@
+<h1>Editar motorista</h1>
+<p class="subtitle">{{.Driver.Email}} (e-mail, CPF e CNH não são editáveis aqui)</p>
+
+<div class="card">
+  <form method="post" action="/admin/drivers/{{.Driver.ID}}/edit">
+    <h3 style="margin-top:0;">Contato e veículo</h3>
+    <div class="form-row">
+      <div class="field"><label for="name">Nome</label><input id="name" name="name" value="{{.Driver.Name}}" required></div>
+      <div class="field"><label for="phone">Telefone</label><input id="phone" name="phone" value="{{.Driver.Phone}}"></div>
+    </div>
+    <div class="form-row">
+      <div class="field"><label for="vehiclePlate">Placa</label><input id="vehiclePlate" name="vehiclePlate" value="{{.Driver.VehiclePlate}}"></div>
+      <div class="field"><label for="vehicleModel">Modelo</label><input id="vehicleModel" name="vehicleModel" value="{{.Driver.VehicleModel}}"></div>
+      <div class="field"><label for="vehicleColor">Cor</label><input id="vehicleColor" name="vehicleColor" value="{{.Driver.VehicleColor}}"></div>
+      <div class="field"><label for="vehicleYear">Ano</label><input id="vehicleYear" name="vehicleYear" value="{{.Driver.VehicleYear}}"></div>
+    </div>
+
+    <h3>Modalidade de cobrança</h3>
+    <div class="field" style="max-width:260px;">
+      <select name="billingMode">
+        <option value="per_ride"{{if ne .Driver.BillingMode "prepaid"}} selected{{end}}>Por corrida (taxa no split)</option>
+        <option value="prepaid"{{if eq .Driver.BillingMode "prepaid"}} selected{{end}}>Pré-pago (taxa debitada dos créditos)</option>
+      </select>
+    </div>
+
+    <h3>Dados bancários (repasse via Pagar.me)</h3>
+    <p style="color:var(--muted); font-size:0.85rem; margin-top:-0.6rem;">
+      Necessário para criar o recebedor na Pagar.me — sem isso o repasse fica pendente.
+    </p>
+    <div class="form-row">
+      <div class="field"><label for="bankCode">Banco (código)</label><input id="bankCode" name="bankCode" value="{{.Driver.BankCode}}" placeholder="Ex: 341"></div>
+      <div class="field"><label for="bankBranch">Agência</label><input id="bankBranch" name="bankBranch" value="{{.Driver.BankBranch}}"></div>
+      <div class="field"><label for="bankAccountNumber">Conta</label><input id="bankAccountNumber" name="bankAccountNumber" value="{{.Driver.BankAccountNumber}}"></div>
+      <div class="field">
+        <label for="bankAccountType">Tipo</label>
+        <select id="bankAccountType" name="bankAccountType">
+          <option value="checking"{{if ne .Driver.BankAccountType "savings"}} selected{{end}}>Corrente</option>
+          <option value="savings"{{if eq .Driver.BankAccountType "savings"}} selected{{end}}>Poupança</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:0.6rem; margin-top:0.6rem;">
+      <button class="btn btn-primary" type="submit">Salvar alterações</button>
+      <a class="btn btn-ghost" href="/admin/drivers/{{.Driver.ID}}">Cancelar</a>
+    </div>
+  </form>
+</div>

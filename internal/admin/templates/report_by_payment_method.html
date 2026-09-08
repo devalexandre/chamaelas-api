@@ -1,0 +1,51 @@
+<h1>Relatório por meio de pagamento</h1>
+<p class="subtitle">Corridas concluídas, agrupadas por meio de pagamento.</p>
+
+<form method="get" class="card form-row" style="align-items:flex-end; margin-bottom:1rem;">
+  <div class="field">
+    <label for="from">De</label>
+    <input id="from" name="from" type="date" value="{{.From}}">
+  </div>
+  <div class="field">
+    <label for="to">Até</label>
+    <input id="to" name="to" type="date" value="{{.To}}">
+  </div>
+  <button class="btn btn-primary" type="submit" style="width:auto; margin-bottom:0.9rem;">Filtrar</button>
+  <a class="btn btn-ghost" style="width:auto; margin-bottom:0.9rem;" href="/admin/reports/by-payment-method/export?from={{.From}}&amp;to={{.To}}">⬇ Exportar CSV (Excel)</a>
+</form>
+
+{{if not .Rows}}
+<div class="card">
+  <p class="empty">Nenhuma corrida concluída ainda.</p>
+</div>
+{{else}}
+  {{if eq (len .Rows) 1}}
+  <div class="callout" style="background:var(--pink-50); border:1px solid var(--pink-200); color:var(--pink-700); padding:0.7rem 1rem; border-radius:10px; font-size:0.85rem; margin-bottom:1rem;">
+    O meio de pagamento só é registrado quando a integração de cobrança com a Pagar.me estiver ativa — até lá, toda corrida aparece como "Não informado".
+  </div>
+  {{end}}
+
+  <div class="stat-row">
+    <div class="stat-tile"><div class="value">{{.RideCount}}</div><div class="label">Corridas</div></div>
+    <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalPrice}}</div><div class="label">Total cobrado</div></div>
+    <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalDriverEarning}}</div><div class="label">Ganho das motoristas</div></div>
+    <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalPlatformFee}}</div><div class="label">Taxa da plataforma</div></div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Meio de pagamento</th><th>Corridas</th><th>Ganho das motoristas</th><th>Taxa da plataforma</th><th>Total cobrado</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+        <tr>
+          <td>{{.GroupKey}}</td>
+          <td>{{.RideCount}}</td>
+          <td class="amount-in">R$ {{printf "%.2f" .TotalDriverEarning}}</td>
+          <td>R$ {{printf "%.2f" .TotalPlatformFee}}</td>
+          <td>R$ {{printf "%.2f" .TotalPrice}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+{{end}}

@@ -1,0 +1,42 @@
+<h1>Categorias</h1>
+<p class="subtitle">Tipos de corrida que as motoristas podem atender.</p>
+
+<div class="card">
+  <form method="post" action="/admin/categories">
+    <div class="form-row">
+      <div class="field">
+        <label for="name">Nome</label>
+        <input id="name" name="name" placeholder="Ex: Executivo" required>
+      </div>
+      <div class="field" style="flex:2;">
+        <label for="description">Descrição</label>
+        <input id="description" name="description" placeholder="Ex: Carro executivo, ar-condicionado">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Adicionar categoria</button>
+  </form>
+</div>
+
+<div class="card">
+  {{if not .Categories}}
+    <p class="empty">Nenhuma categoria cadastrada.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Nome</th><th>Descrição</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {{range .Categories}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Description}}</td>
+        <td>{{if .Active}}<span class="pill pill-active">Ativa</span>{{else}}<span class="pill pill-inactive">Inativa</span>{{end}}</td>
+        <td>
+          <form class="inline" method="post" action="/admin/categories/{{.ID}}/toggle">
+            <button class="btn btn-ghost btn-sm" type="submit">{{if .Active}}Desativar{{else}}Ativar{{end}}</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

@@ -1,0 +1,109 @@
+<h1>Tarifas</h1>
+<p class="subtitle">Preço por faixa de km, dentro de um dia da semana e horário. Configure um dia e use "Clonar" para replicar nos outros.</p>
+
+<div class="card">
+  <h3 style="margin-top:0;">Nova regra</h3>
+  <form method="post" action="/admin/pricing">
+    <div class="form-row">
+      <div class="field">
+        <label for="dayOfWeek">Dia da semana</label>
+        <select id="dayOfWeek" name="dayOfWeek" required>
+          {{range $i, $name := .Weekdays}}<option value="{{$i}}">{{$name}}</option>{{end}}
+        </select>
+      </div>
+      <div class="field">
+        <label for="startTime">Início</label>
+        <input id="startTime" name="startTime" type="time" value="08:00" required>
+      </div>
+      <div class="field">
+        <label for="endTime">Fim</label>
+        <input id="endTime" name="endTime" type="time" value="10:00" required>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="cityId">Cidade</label>
+        <select id="cityId" name="cityId">
+          <option value="">Todas as cidades</option>
+          {{range .Cities}}<option value="{{.ID}}">{{.Name}}/{{.UF}}</option>{{end}}
+        </select>
+      </div>
+      <div class="field">
+        <label for="categoryId">Categoria</label>
+        <select id="categoryId" name="categoryId">
+          <option value="">Todas as categorias</option>
+          {{range .Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+        </select>
+      </div>
+    </div>
+
+    <label>Faixas de km</label>
+    <p class="hint-text" style="text-align:left; padding:0 0 0.4rem;">
+      Preencha "Preço fixo", "Preço por km", ou os dois — o valor final da faixa é fixo + (preço por km × distância da corrida).
+    </p>
+    <div id="brackets">
+      <div class="form-row bracket-row">
+        <div class="field"><input name="kmFrom[]" type="number" step="0.1" min="0" placeholder="De (km)" required></div>
+        <div class="field"><input name="kmTo[]" type="number" step="0.1" min="0" placeholder="Até (km)"></div>
+        <div class="field"><input name="price[]" type="number" step="0.01" min="0" placeholder="Preço fixo (R$)"></div>
+        <div class="field"><input name="pricePerKm[]" type="number" step="0.01" min="0" placeholder="Preço por km (R$)"></div>
+        <button type="button" class="btn btn-ghost btn-sm remove-row" style="align-self:center;">Remover</button>
+      </div>
+    </div>
+    <button type="button" id="add-bracket" class="btn btn-ghost btn-sm" style="margin:0.6rem 0 1rem;">+ Adicionar faixa de km</button>
+
+    <div>
+      <button class="btn btn-primary" type="submit">Salvar regra</button>
+    </div>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Regras configuradas</h3>
+  {{if not .Rules}}
+    <p class="empty">Nenhuma tarifa configurada ainda — o app usa a estimativa padrão até aqui.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Quando</th><th>Escopo</th><th>Faixas de km</th><th></th></tr></thead>
+    <tbody>
+      {{range .Rules}}
+      <tr>
+        <td>{{index $.Weekdays .DayOfWeek}}<br>{{.StartTime}}–{{.EndTime}}</td>
+        <td>{{.CityName}}<br>{{.CategoryName}}</td>
+        <td>
+          {{range .Brackets}}
+            {{.KmFrom}}{{if .KmTo}}–{{.KmTo}}{{else}}+{{end}}km:
+            {{if .Price}}R$ {{printf "%.2f" .Price}} fixo{{end}}
+            {{if .PricePerKm}}{{if .Price}} + {{end}}R$ {{printf "%.2f" .PricePerKm}}/km{{end}}<br>
+          {{end}}
+        </td>
+        <td style="white-space:nowrap;">
+          <a class="btn btn-ghost btn-sm" href="/admin/pricing/{{.ID}}/edit">Editar</a>
+          <form class="inline" method="post" action="/admin/pricing/{{.ID}}/clone">
+            <button class="btn btn-ghost btn-sm" type="submit" title="Copia esta regra para os outros 6 dias da semana">Clonar p/ todos os dias</button>
+          </form>
+          <form class="inline" method="post" action="/admin/pricing/{{.ID}}/delete">
+            <button class="btn btn-danger btn-sm" type="submit">Excluir</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+
+<script>
+  document.getElementById('add-bracket').addEventListener('click', function () {
+    var container = document.getElementById('brackets');
+    var row = container.querySelector('.bracket-row').cloneNode(true);
+    row.querySelectorAll('input').forEach(function (input) { input.value = ''; });
+    container.appendChild(row);
+  });
+
+  document.getElementById('brackets').addEventListener('click', function (e) {
+    if (!e.target.classList.contains('remove-row')) return;
+    var rows = document.querySelectorAll('.bracket-row');
+    if (rows.length > 1) e.target.closest('.bracket-row').remove();
+  });
+</script>

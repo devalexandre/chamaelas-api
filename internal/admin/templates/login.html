@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrar — Chama Elas Admin</title>
+  <style>
+    :root {
+      --pink-50: #fff0f5; --pink-500: #ff1493; --pink-600: #e0107e; --pink-700: #c71585;
+      --ink: #24121b; --muted: #8a747b; --line: #f0d6e1; --bg: #fff6f9; --white: #fff; --danger: #e5484d;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--ink); }
+    .box { background: var(--white); border: 1px solid var(--line); border-radius: 16px; padding: 2.2rem; width: 340px; box-shadow: 0 10px 30px rgba(199,21,133,0.12); }
+    h1 { font-size: 1.3rem; color: var(--pink-700); margin: 0 0 0.2rem; }
+    p.sub { color: var(--muted); font-size: 0.88rem; margin: 0 0 1.4rem; }
+    label { display: block; font-size: 0.8rem; font-weight: 700; color: var(--pink-700); margin-bottom: 0.3rem; }
+    input { width: 100%; padding: 0.7rem 0.85rem; border: 1.5px solid var(--line); border-radius: 8px; font: inherit; margin-bottom: 1rem; }
+    button { width: 100%; padding: 0.75rem; border: none; border-radius: 10px; background: linear-gradient(135deg, var(--pink-500), var(--pink-600)); color: var(--white); font-weight: 700; font-size: 0.95rem; cursor: pointer; }
+    .error { color: var(--danger); font-size: 0.85rem; margin-bottom: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>💗 Chama Elas Admin</h1>
+    <p class="sub">Painel interno da operação.</p>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <form method="post" action="/admin/login">
+      <label for="email">E-mail</label>
+      <input id="email" name="email" type="email" value="{{.Email}}" required autofocus>
+      <label for="password">Senha</label>
+      <input id="password" name="password" type="password" required>
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+</body>
+</html>

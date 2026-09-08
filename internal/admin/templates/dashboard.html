@@ -1,0 +1,28 @@
+<h1>Início</h1>
+<p class="subtitle">Visão geral da operação.</p>
+
+<div class="stat-row">
+  <div class="stat-tile">
+    <div class="value">{{.PendingCount}}</div>
+    <div class="label">Motoristas aguardando aprovação</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.OnlineCount}}</div>
+    <div class="label">Motoristas online agora</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.DriverCount}}</div>
+    <div class="label">Motoristas cadastradas</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.UserCount}}</div>
+    <div class="label">Usuárias cadastradas</div>
+  </div>
+</div>
+
+{{if gt .PendingCount 0}}
+<div class="card">
+  <p style="margin:0 0 0.8rem;">Você tem <strong>{{.PendingCount}}</strong> motorista(s) aguardando aprovação.</p>
+  <a class="btn btn-primary" href="/admin/drivers?status=pending">Revisar agora</a>
+</div>
+{{end}}

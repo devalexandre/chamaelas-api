@@ -1,0 +1,51 @@
+<h1>Motoristas</h1>
+<p class="subtitle">Aprove novos cadastros e gerencie o acesso das motoristas.</p>
+
+<div class="card" style="display:flex; gap:0.5rem; margin-bottom:1rem;">
+  <a class="btn {{if eq .StatusFilter ""}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/admin/drivers">Todas</a>
+  <a class="btn {{if eq .StatusFilter "pending"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/admin/drivers?status=pending">Pendentes</a>
+  <a class="btn {{if eq .StatusFilter "approved"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/admin/drivers?status=approved">Aprovadas</a>
+  <a class="btn {{if eq .StatusFilter "blocked"}}btn-primary{{else}}btn-ghost{{end}} btn-sm" href="/admin/drivers?status=blocked">Bloqueadas</a>
+</div>
+
+<div class="card">
+  {{if not .Drivers}}
+    <p class="empty">Nenhuma motorista encontrada.</p>
+  {{else}}
+  <table>
+    <thead>
+      <tr><th>Nome</th><th>E-mail</th><th>Veículo</th><th>Status</th><th>Online</th><th>Cobrança</th><th></th></tr>
+    </thead>
+    <tbody>
+      {{range .Drivers}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{.Email}}</td>
+        <td>{{.VehicleModel}} {{.VehicleColor}} · {{.VehiclePlate}}</td>
+        <td>
+          {{if eq .Status "pending"}}<span class="pill pill-pending">Pendente</span>{{end}}
+          {{if eq .Status "approved"}}<span class="pill pill-approved">Aprovada</span>{{end}}
+          {{if eq .Status "blocked"}}<span class="pill pill-blocked">Bloqueada</span>{{end}}
+        </td>
+        <td>{{if .IsOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}</td>
+        <td>{{if eq .BillingMode "prepaid"}}Pré-pago (R$ {{printf "%.2f" .CreditBalance}}){{else}}Por corrida{{end}}</td>
+        <td style="white-space:nowrap;">
+          <a class="btn btn-ghost btn-sm" href="/admin/drivers/{{.ID}}">Visualizar</a>
+          <a class="btn btn-ghost btn-sm" href="/admin/drivers/{{.ID}}/edit">Editar</a>
+          {{if ne .Status "approved"}}
+          <form class="inline" method="post" action="/admin/drivers/{{.ID}}/approve">
+            <button class="btn btn-primary btn-sm" type="submit">Aprovar</button>
+          </form>
+          {{end}}
+          {{if ne .Status "blocked"}}
+          <form class="inline" method="post" action="/admin/drivers/{{.ID}}/block">
+            <button class="btn btn-danger btn-sm" type="submit">Bloquear</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

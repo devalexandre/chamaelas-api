@@ -1,0 +1,120 @@
+<h1>Financeiro</h1>
+<p class="subtitle">Taxa da plataforma, gateway de pagamento, nossa carteira e créditos pré-pagos das motoristas.</p>
+
+<div class="card">
+  <h3 style="margin-top:0;">Taxa de comissão</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    A taxa é <strong>somada</strong> ao preço da corrida — a passageira paga o valor da motorista + a taxa da plataforma.
+    A motorista sempre recebe o valor cheio da corrida: no modo "por corrida" a taxa é retida no split do pagamento;
+    no modo "pré-pago" ela recebe o valor cheio e a taxa é debitada dos créditos dela.
+  </p>
+  <form method="post" action="/admin/billing/commission" class="form-row" style="align-items:flex-end;">
+    <div class="field" style="max-width:160px;">
+      <label for="commissionPercent">Percentual (%)</label>
+      <input id="commissionPercent" name="commissionPercent" type="number" step="0.1" min="0" max="100" value="{{printf "%.1f" .CommissionPercent}}">
+    </div>
+    <button class="btn btn-primary" type="submit" style="margin-bottom:0.9rem;">Salvar</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Taxas da Pagar.me</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    O que a Pagar.me cobra da gente por meio de pagamento — não é a comissão da plataforma acima, é o custo do processamento.
+    Mantenha atualizado com o plano contratado pra calcularmos a margem líquida por meio de pagamento.
+  </p>
+  <form method="post" action="/admin/billing/gateway-fees">
+    <table>
+      <thead><tr><th>Meio de pagamento</th><th style="width:160px;">Taxa (%)</th></tr></thead>
+      <tbody>
+        {{range .GatewayFeeRates}}
+        <tr>
+          <td>{{.Label}}</td>
+          <td><input name="feePercent[{{.ID}}]" type="number" step="0.01" min="0" value="{{printf "%.2f" .FeePercent}}"></td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    <button class="btn btn-primary" type="submit" style="margin-top:0.8rem;">Salvar taxas</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Gateway de pagamento — Pagar.me</h3>
+  <form method="post" action="/admin/billing/gateway">
+    <div class="form-row">
+      <div class="field">
+        <label for="environment">Ambiente</label>
+        <select id="environment" name="environment">
+          <option value="sandbox"{{if ne .Payment.Environment "production"}} selected{{end}}>Sandbox (testes)</option>
+          <option value="production"{{if eq .Payment.Environment "production"}} selected{{end}}>Produção</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="publicKey">Chave pública</label>
+        <input id="publicKey" name="publicKey" value="{{.Payment.PublicKey}}" placeholder="pk_...">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="secretKey">Chave secreta</label>
+        <input id="secretKey" name="secretKey" type="password" placeholder="{{if .Payment.PlatformRecipientID}}•••••••• (deixe em branco para manter){{else}}sk_...{{end}}">
+      </div>
+      <div class="field">
+        <label for="platformRecipientId">Recipient ID da plataforma (nossa carteira)</label>
+        <input id="platformRecipientId" name="platformRecipientId" value="{{.Payment.PlatformRecipientID}}" placeholder="re_...">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Salvar credenciais</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Nossa carteira</h3>
+  {{if not .Payment.PlatformRecipientID}}
+    <p class="empty">Configure o Recipient ID acima para consultar o saldo da plataforma na Pagar.me.</p>
+  {{else if .WalletError}}
+    <p class="error-text" style="color:var(--danger);">Não foi possível consultar o saldo: {{.WalletError}}</p>
+  {{else if .Wallet}}
+    <div class="stat-row">
+      <div class="stat-tile">
+        <div class="value">R$ {{printf "%.2f" (div64 .Wallet.AvailableAmount 100)}}</div>
+        <div class="label">Disponível</div>
+      </div>
+      <div class="stat-tile">
+        <div class="value">R$ {{printf "%.2f" (div64 .Wallet.WaitingFundsAmount 100)}}</div>
+        <div class="label">A receber</div>
+      </div>
+      <div class="stat-tile">
+        <div class="value">R$ {{printf "%.2f" (div64 .Wallet.TransferredAmount 100)}}</div>
+        <div class="label">Já transferido</div>
+      </div>
+    </div>
+  {{end}}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Motoristas — modalidade e saldo</h3>
+  {{if not .Drivers}}
+    <p class="empty">Nenhuma motorista cadastrada.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Nome</th><th>Modalidade</th><th>Saldo</th><th>Ajustar crédito</th></tr></thead>
+    <tbody>
+      {{range .Drivers}}
+      <tr>
+        <td>{{.Name}}</td>
+        <td>{{if eq .BillingMode "prepaid"}}Pré-pago{{else}}Por corrida{{end}}</td>
+        <td>R$ {{printf "%.2f" .CreditBalance}}</td>
+        <td>
+          <form class="inline" method="post" action="/admin/billing/drivers/{{.ID}}/adjust" style="display:flex; gap:0.4rem;">
+            <input type="number" name="amount" step="0.01" placeholder="+50 ou -10" style="width:110px;">
+            <button class="btn btn-ghost btn-sm" type="submit">Aplicar</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

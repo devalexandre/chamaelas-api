@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chama Elas Admin</title>
+  <style>
+    :root {
+      --pink-50: #fff0f5; --pink-100: #ffe1ec; --pink-200: #ffc4dc;
+      --pink-500: #ff1493; --pink-600: #e0107e; --pink-700: #c71585; --pink-900: #7a0a4e;
+      --ink: #24121b; --muted: #8a747b; --line: #f0d6e1; --bg: #fff6f9; --white: #fff;
+      --danger: #e5484d; --success: #2f8f5b;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); }
+    a { color: inherit; }
+    .shell { display: flex; min-height: 100vh; }
+    nav.side { width: 220px; background: var(--white); border-right: 1px solid var(--line); padding: 1.5rem 1rem; flex-shrink: 0; }
+    nav.side .brand { font-weight: 800; color: var(--pink-700); font-size: 1.05rem; margin-bottom: 2rem; display: block; }
+    nav.side a.link { display: block; padding: 0.6rem 0.8rem; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.92rem; font-weight: 600; margin-bottom: 0.2rem; }
+    nav.side a.link.active, nav.side a.link:hover { background: var(--pink-50); color: var(--pink-700); }
+    nav.side .nav-group-label { display: block; padding: 0.7rem 0.8rem 0.2rem; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); opacity: 0.75; }
+    nav.side a.sublink { padding-left: 1.6rem; font-size: 0.85rem; font-weight: 500; }
+    nav.side form { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+    nav.side button.logout { width: 100%; padding: 0.6rem; border: 1px solid var(--line); background: var(--white); border-radius: 8px; color: var(--danger); font-weight: 600; cursor: pointer; }
+    main { flex: 1; padding: 2rem 2.5rem; max-width: 980px; }
+    h1 { font-size: 1.5rem; margin: 0 0 0.3rem; color: var(--pink-900); }
+    .subtitle { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.92rem; }
+    .card { background: var(--white); border: 1px solid var(--line); border-radius: 14px; padding: 1.3rem; margin-bottom: 1.2rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th { text-align: left; color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--line); }
+    td { padding: 0.7rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    .pill { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+    .pill-pending { background: #fdf0dc; color: #b5730a; }
+    .pill-approved { background: #e3f5ea; color: var(--success); }
+    .pill-blocked { background: #fde3e4; color: var(--danger); }
+    .pill-active { background: #e3f5ea; color: var(--success); }
+    .pill-inactive { background: var(--pink-50); color: var(--muted); }
+    .amount-in { color: var(--success); font-weight: 700; }
+    .amount-out { color: var(--danger); font-weight: 700; }
+
+    /* Tabs: pure CSS via hidden radios + labels, no JS needed. */
+    .tabs .tab-radio { position: absolute; opacity: 0; pointer-events: none; }
+    .tabs .tab-nav { display: flex; gap: 0.4rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
+    .tabs .tab-label {
+      padding: 0.6rem 1rem;
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .tabs .tab-panel { display: none; }
+    #tab-history:checked ~ .tab-nav label[for="tab-history"],
+    #tab-ledger:checked ~ .tab-nav label[for="tab-ledger"] {
+      color: var(--pink-700);
+      border-bottom-color: var(--pink-500);
+    }
+    #tab-history:checked ~ #panel-history,
+    #tab-ledger:checked ~ #panel-ledger {
+      display: block;
+    }
+    .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; text-decoration: none; }
+    .btn-primary { background: linear-gradient(135deg, var(--pink-500), var(--pink-600)); color: var(--white); }
+    .btn-ghost { background: var(--pink-50); color: var(--pink-700); }
+    .btn-danger { background: #fde3e4; color: var(--danger); }
+    .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.76rem; }
+    .stat-row { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .stat-tile { flex: 1; min-width: 140px; background: var(--white); border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem 1.3rem; }
+    .stat-tile .value { font-size: 1.6rem; font-weight: 800; color: var(--pink-700); font-variant-numeric: tabular-nums; }
+    .stat-tile .label { font-size: 0.8rem; color: var(--muted); }
+    form.inline { display: inline; }
+    input, select { font: inherit; padding: 0.55rem 0.7rem; border: 1.5px solid var(--line); border-radius: 8px; background: var(--white); width: 100%; box-sizing: border-box; }
+    label { display: block; font-size: 0.8rem; font-weight: 700; color: var(--pink-700); margin-bottom: 0.3rem; }
+    .field { margin-bottom: 0.9rem; }
+    .form-row { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+    .form-row .field { flex: 1; min-width: 140px; }
+    .bracket-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr auto;
+      gap: 0.5rem;
+      align-items: start;
+      margin-bottom: 0.5rem;
+    }
+    .bracket-row .field { min-width: 0; margin-bottom: 0; }
+    .bracket-row .remove-row { align-self: center; white-space: nowrap; }
+    @media (max-width: 720px) {
+      .bracket-row { grid-template-columns: 1fr 1fr; }
+      .bracket-row .remove-row { grid-column: 1 / -1; }
+    }
+    .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+    .flash { background: var(--pink-50); border: 1px solid var(--pink-200); color: var(--pink-700); padding: 0.6rem 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.88rem; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="side">
+      <span class="brand">💗 Chama Elas Admin</span>
+      <a class="link{{if eq .Active "dashboard"}} active{{end}}" href="/admin">Início</a>
+      <a class="link{{if eq .Active "drivers"}} active{{end}}" href="/admin/drivers">Motoristas</a>
+      <a class="link{{if eq .Active "users"}} active{{end}}" href="/admin/users">Usuárias</a>
+      <a class="link{{if eq .Active "cities"}} active{{end}}" href="/admin/cities">Cidades</a>
+      <a class="link{{if eq .Active "categories"}} active{{end}}" href="/admin/categories">Categorias</a>
+      <a class="link{{if eq .Active "pricing"}} active{{end}}" href="/admin/pricing">Tarifas</a>
+      <a class="link{{if eq .Active "billing"}} active{{end}}" href="/admin/billing">Financeiro</a>
+      <span class="nav-group-label">Relatórios</span>
+      <a class="link sublink{{if eq .Active "reports-date"}} active{{end}}" href="/admin/reports/by-date">Por data</a>
+      <a class="link sublink{{if eq .Active "reports-payment"}} active{{end}}" href="/admin/reports/by-payment-method">Por meio de pagamento</a>
+      <a class="link sublink{{if eq .Active "reports-category"}} active{{end}}" href="/admin/reports/by-category">Por categoria</a>
+      <form method="post" action="/admin/logout">
+        <button class="logout" type="submit">Sair</button>
+      </form>
+    </nav>
+    <main>
+      {{.Body}}
+    </main>
+  </div>
+</body>
+</html>

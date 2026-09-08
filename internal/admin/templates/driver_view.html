@@ -1,0 +1,140 @@
+<h1>{{.Driver.Name}}</h1>
+<p class="subtitle">
+  {{if eq .Driver.Status "pending"}}<span class="pill pill-pending">Pendente</span>{{end}}
+  {{if eq .Driver.Status "approved"}}<span class="pill pill-approved">Aprovada</span>{{end}}
+  {{if eq .Driver.Status "blocked"}}<span class="pill pill-blocked">Bloqueada</span>{{end}}
+  {{if .Driver.IsOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}
+</p>
+
+<div style="display:flex; gap:0.6rem; margin-bottom:1rem;">
+  <a class="btn btn-ghost btn-sm" href="/admin/drivers/{{.Driver.ID}}/edit">Editar</a>
+  {{if ne .Driver.Status "approved"}}
+  <form method="post" action="/admin/drivers/{{.Driver.ID}}/approve"><button class="btn btn-primary btn-sm" type="submit">Aprovar</button></form>
+  {{end}}
+  {{if ne .Driver.Status "blocked"}}
+  <form method="post" action="/admin/drivers/{{.Driver.ID}}/block"><button class="btn btn-danger btn-sm" type="submit">Bloquear</button></form>
+  {{end}}
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Dados pessoais</h3>
+  <table>
+    <tr><th style="width:180px;">E-mail</th><td>{{.Driver.Email}}</td></tr>
+    <tr><th>Telefone</th><td>{{.Driver.Phone}}</td></tr>
+    <tr><th>CPF</th><td>{{.Driver.CPF}}</td></tr>
+    <tr><th>CNH</th><td>{{.Driver.CNH}}</td></tr>
+    <tr><th>Nascimento</th><td>{{.Driver.BirthDate}}</td></tr>
+    <tr><th>Avaliação</th><td>★ {{printf "%.1f" .Driver.Rating}}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Veículo e categorias</h3>
+  <table>
+    <tr><th style="width:180px;">Veículo</th><td>{{.Driver.VehicleModel}} {{.Driver.VehicleColor}} {{.Driver.VehicleYear}} · {{.Driver.VehiclePlate}}</td></tr>
+    <tr><th>Categorias</th><td>{{range .Categories}}{{.Name}} {{end}}{{if not .Categories}}<span class="empty" style="padding:0;">Nenhuma</span>{{end}}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Carteira</h3>
+  <div class="stat-row">
+    <div class="stat-tile">
+      <div class="value">{{if eq .Driver.BillingMode "prepaid"}}Pré-pago{{else}}Por corrida{{end}}</div>
+      <div class="label">Modalidade de cobrança</div>
+    </div>
+    <div class="stat-tile">
+      <div class="value">R$ {{printf "%.2f" .Driver.CreditBalance}}</div>
+      <div class="label">Saldo de créditos</div>
+    </div>
+  </div>
+
+  <h4>Dados bancários (repasse Pagar.me)</h4>
+  {{if .Driver.PagarmeRecipientID}}
+    <p><span class="pill pill-active">Recebedor criado</span> — <code>{{.Driver.PagarmeRecipientID}}</code></p>
+  {{else}}
+    <p class="empty" style="padding:0.5rem 0;">Recebedor ainda não criado na Pagar.me — verifique se o gateway está configurado e se os dados bancários abaixo estão preenchidos, depois aprove a motorista novamente.</p>
+  {{end}}
+  <table>
+    <tr><th style="width:180px;">Banco</th><td>{{if .Driver.BankCode}}{{.Driver.BankCode}}{{else}}—{{end}}</td></tr>
+    <tr><th>Agência</th><td>{{if .Driver.BankBranch}}{{.Driver.BankBranch}}{{else}}—{{end}}</td></tr>
+    <tr><th>Conta</th><td>{{if .Driver.BankAccountNumber}}{{.Driver.BankAccountNumber}} ({{.Driver.BankAccountType}}){{else}}—{{end}}</td></tr>
+  </table>
+</div>
+
+<div class="card tabs">
+  <input type="radio" name="driver-tab" id="tab-history" class="tab-radio" checked>
+  <input type="radio" name="driver-tab" id="tab-ledger" class="tab-radio">
+
+  <div class="tab-nav">
+    <label for="tab-history" class="tab-label">Histórico de corridas</label>
+    <label for="tab-ledger" class="tab-label">Extrato de créditos</label>
+  </div>
+
+  <div class="tab-panel" id="panel-history">
+    {{if not .Rides}}
+      <p class="empty">Nenhuma corrida ainda.</p>
+    {{else}}
+    <table>
+      <thead><tr><th>Data</th><th>Trajeto</th><th>Status</th><th>Ganho da motorista</th><th>Cobrado da passageira</th></tr></thead>
+      <tbody>
+        {{range .Rides}}
+        <tr>
+          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{.Origin.Data.Label}} → {{.Destination.Data.Label}}</td>
+          <td>
+            {{if eq .Status "completed"}}<span class="pill pill-approved">Concluída</span>{{end}}
+            {{if eq .Status "cancelled"}}<span class="pill pill-blocked">Cancelada</span>{{end}}
+            {{if not (or (eq .Status "completed") (eq .Status "cancelled"))}}<span class="pill pill-pending">{{.Status}}</span>{{end}}
+          </td>
+          <td class="amount-in">R$ {{printf "%.2f" .DriverEarning}}</td>
+          <td>R$ {{printf "%.2f" .Price}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+
+  <div class="tab-panel" id="panel-ledger">
+    <p style="color:var(--muted); font-size:0.85rem; margin-top:0;">
+      <span class="amount-in">Entradas</span> (recargas e ajustes positivos) e <span class="amount-out">saídas</span> (taxas de corrida e ajustes negativos).
+    </p>
+    {{if not .Transactions}}
+      <p class="empty" style="padding:0.5rem 0;">Nenhuma movimentação ainda.</p>
+    {{else}}
+    <table>
+      <thead><tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Saldo após</th><th>Nota</th></tr></thead>
+      <tbody>
+        {{range .Transactions}}
+        <tr>
+          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>
+            {{if eq .Type "topup"}}Recarga{{end}}
+            {{if eq .Type "ride_fee"}}Taxa de corrida{{end}}
+            {{if eq .Type "adjustment"}}Ajuste manual{{end}}
+          </td>
+          <td>
+            {{if ge .Amount 0.0}}<span class="amount-in">+ R$ {{printf "%.2f" .Amount}}</span>
+            {{else}}<span class="amount-out">− R$ {{printf "%.2f" (mulf64 .Amount -1.0)}}</span>{{end}}
+          </td>
+          <td>R$ {{printf "%.2f" .BalanceAfter}}</td>
+          <td>{{.Note}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Segurança</h3>
+  <form method="post" action="/admin/drivers/{{.Driver.ID}}/password" class="form-row" style="align-items:flex-end;">
+    <div class="field" style="max-width:260px;">
+      <label for="newPassword">Nova senha</label>
+      <input id="newPassword" name="newPassword" type="password" minlength="6" placeholder="Mínimo 6 caracteres" required>
+    </div>
+    <button class="btn btn-danger" type="submit" style="width:auto; margin-bottom:0.9rem;">Redefinir senha</button>
+  </form>
+</div>

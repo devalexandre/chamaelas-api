@@ -1,0 +1,43 @@
+<h1>Relatório por categoria</h1>
+<p class="subtitle">Corridas concluídas, agrupadas por categoria.</p>
+
+<form method="get" class="card form-row" style="align-items:flex-end; margin-bottom:1rem;">
+  <div class="field">
+    <label for="from">De</label>
+    <input id="from" name="from" type="date" value="{{.From}}">
+  </div>
+  <div class="field">
+    <label for="to">Até</label>
+    <input id="to" name="to" type="date" value="{{.To}}">
+  </div>
+  <button class="btn btn-primary" type="submit" style="width:auto; margin-bottom:0.9rem;">Filtrar</button>
+  <a class="btn btn-ghost" style="width:auto; margin-bottom:0.9rem;" href="/admin/reports/by-category/export?from={{.From}}&amp;to={{.To}}">⬇ Exportar CSV (Excel)</a>
+</form>
+
+<div class="stat-row">
+  <div class="stat-tile"><div class="value">{{.RideCount}}</div><div class="label">Corridas</div></div>
+  <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalPrice}}</div><div class="label">Total cobrado</div></div>
+  <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalDriverEarning}}</div><div class="label">Ganho das motoristas</div></div>
+  <div class="stat-tile"><div class="value">R$ {{printf "%.2f" .TotalPlatformFee}}</div><div class="label">Taxa da plataforma</div></div>
+</div>
+
+<div class="card">
+  {{if not .Rows}}
+    <p class="empty">Nenhuma corrida concluída ainda.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Categoria</th><th>Corridas</th><th>Ganho das motoristas</th><th>Taxa da plataforma</th><th>Total cobrado</th></tr></thead>
+    <tbody>
+      {{range .Rows}}
+      <tr>
+        <td>{{.GroupKey}}</td>
+        <td>{{.RideCount}}</td>
+        <td class="amount-in">R$ {{printf "%.2f" .TotalDriverEarning}}</td>
+        <td>R$ {{printf "%.2f" .TotalPlatformFee}}</td>
+        <td>R$ {{printf "%.2f" .TotalPrice}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

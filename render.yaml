@@ -1,0 +1,24 @@
+# Render Blueprint — connect the repo at render.com/blueprints. The database
+# is an external Neon Postgres instance (not Render's own managed Postgres),
+# so DB_DSN is never stored here — Render prompts you for it once at deploy
+# time and keeps it as a private env var. SQLite is dev-only: Render's web
+# service disk is ephemeral, so production always runs on Postgres.
+services:
+  - type: web
+    name: chamaelas-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: DB_DRIVER
+        value: postgres
+      - key: DB_DSN
+        sync: false # set manually in the Render dashboard — the Neon connection string
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@chamaelas.com
+      - key: ADMIN_PASSWORD
+        sync: false # set manually — don't ship the dev default to production
