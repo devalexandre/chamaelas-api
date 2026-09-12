@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/vingarcia/ksql"
 
@@ -92,13 +93,58 @@ func (r *RideRepository) ListByDriver(ctx context.Context, driverID string) ([]m
 	return rides, err
 }
 
+// AssignDriver finalizes a ride to a driver who accepted her offer — also
+// clears the offer fields since the offer/response cycle is done.
 func (r *RideRepository) AssignDriver(ctx context.Context, rideID, driverID string) error {
 	query := fmt.Sprintf(
-		"UPDATE rides SET driver_id = %s, status = %s WHERE id = %s",
+		"UPDATE rides SET driver_id = %s, status = %s, offered_driver_id = NULL, offer_expires_at = NULL WHERE id = %s",
 		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
 	)
 	_, err := r.db.Exec(ctx, query, driverID, string(models.RideStatusAccepted), rideID)
 	return err
+}
+
+// SetOffer records that this ride is being offered to driverID until
+// expiresAt — the ride's own status stays "searching" throughout, since a
+// pending offer isn't guaranteed to be accepted.
+func (r *RideRepository) SetOffer(ctx context.Context, rideID, driverID string, expiresAt time.Time) error {
+	query := fmt.Sprintf(
+		"UPDATE rides SET offered_driver_id = %s, offer_expires_at = %s WHERE id = %s",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
+	)
+	_, err := r.db.Exec(ctx, query, driverID, expiresAt, rideID)
+	return err
+}
+
+// ClearOffer removes a pending offer — called on decline, on timeout, and
+// (defensively) whenever a ride leaves "searching" some other way.
+func (r *RideRepository) ClearOffer(ctx context.Context, rideID string) error {
+	query := fmt.Sprintf(
+		"UPDATE rides SET offered_driver_id = NULL, offer_expires_at = NULL WHERE id = %s",
+		database.Placeholder(r.cfg, 1),
+	)
+	_, err := r.db.Exec(ctx, query, rideID)
+	return err
+}
+
+// FindPendingOfferForDriver returns the ride currently offered to this
+// driver, if the offer hasn't expired — the driver app polls this (and a
+// native background service does the same) to learn about a new ride
+// without the backend auto-assigning anything.
+func (r *RideRepository) FindPendingOfferForDriver(ctx context.Context, driverID string) (*models.Ride, error) {
+	var ride models.Ride
+	query := fmt.Sprintf(
+		"FROM rides WHERE offered_driver_id = %s AND status = %s AND offer_expires_at > %s",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
+	)
+	err := r.db.QueryOne(ctx, &ride, query, driverID, string(models.RideStatusSearching), time.Now().UTC())
+	if errors.Is(err, ksql.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ride, nil
 }
 
 func (r *RideRepository) UpdateStatus(ctx context.Context, rideID string, status models.RideStatus) error {

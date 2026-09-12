@@ -81,6 +81,7 @@ func main() {
 
 	api.POST("/driver/auth/signup", driverHandler.Signup)
 	api.POST("/driver/auth/login", driverHandler.Login)
+	api.GET("/drivers/nearby", driverHandler.Nearby)
 	api.GET("/driver/:id", driverHandler.GetProfile)
 	api.POST("/driver/:id/location", driverHandler.SetLocation)
 	api.POST("/driver/:id/categories", driverHandler.AddCategory)
@@ -88,11 +89,14 @@ func main() {
 	api.POST("/driver/:id/billing-mode", driverHandler.SetBillingMode)
 	api.GET("/driver/:id/credit-transactions", driverHandler.ListCreditTransactions)
 	api.GET("/driver/:driverId/rides/current", rideHandler.CurrentForDriver)
+	api.GET("/driver/:driverId/rides/offer", rideHandler.GetOffer)
 
 	api.POST("/rides", rideHandler.Create)
 	api.GET("/rides", rideHandler.ListByUser)
 	api.GET("/rides/:id", rideHandler.Get)
 	api.POST("/rides/:id/cancel", rideHandler.Cancel)
+	api.POST("/rides/:id/accept", rideHandler.Accept)
+	api.POST("/rides/:id/decline", rideHandler.Decline)
 	api.POST("/rides/:id/arrive", rideHandler.Arrive)
 	api.POST("/rides/:id/start", rideHandler.Start)
 	api.POST("/rides/:id/complete", rideHandler.Complete)

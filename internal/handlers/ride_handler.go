@@ -8,11 +8,13 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 
+	"chamaelas-api/internal/geo"
 	"chamaelas-api/internal/matching"
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
@@ -21,6 +23,10 @@ import (
 // Short delay before the first matching attempt, just so the "procurando
 // motorista" state is visible for a beat instead of resolving instantly.
 const matchingDelay = 1500 * time.Millisecond
+
+// offerTTL is how long a driver has to accept or decline a ride offer
+// before the matcher gives up on her and tries the next-nearest driver.
+const offerTTL = 15 * time.Second
 
 const (
 	baseFare     = 5.0
@@ -33,10 +39,43 @@ type RideHandler struct {
 	drivers *repository.DriverRepository
 	billing *repository.BillingRepository
 	cities  *repository.CityRepository
+
+	// excludedMu guards excluded, an in-memory rideID -> set-of-driverIDs map
+	// of drivers who already declined or timed out on a ride's offer, so the
+	// matcher doesn't re-offer it to them. Not persisted: acceptable at this
+	// scale, and it only ever affects a ride still actively "searching" —
+	// nothing is lost if the process restarts mid-search beyond having to
+	// re-offer to a driver who already declined once.
+	excludedMu sync.Mutex
+	excluded   map[string]map[string]bool
 }
 
 func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, billing *repository.BillingRepository, cities *repository.CityRepository) *RideHandler {
-	return &RideHandler{rides: rides, drivers: drivers, billing: billing, cities: cities}
+	return &RideHandler{rides: rides, drivers: drivers, billing: billing, cities: cities, excluded: map[string]map[string]bool{}}
+}
+
+func (h *RideHandler) excludeDriver(rideID, driverID string) {
+	h.excludedMu.Lock()
+	defer h.excludedMu.Unlock()
+	if h.excluded[rideID] == nil {
+		h.excluded[rideID] = map[string]bool{}
+	}
+	h.excluded[rideID][driverID] = true
+}
+
+func (h *RideHandler) isExcluded(rideID, driverID string) bool {
+	h.excludedMu.Lock()
+	defer h.excludedMu.Unlock()
+	return h.excluded[rideID][driverID]
+}
+
+// clearExcluded drops a ride's exclusion set once it stops actively
+// searching (matched, cancelled, or completed), so the map doesn't grow
+// forever across the process's lifetime.
+func (h *RideHandler) clearExcluded(rideID string) {
+	h.excludedMu.Lock()
+	defer h.excludedMu.Unlock()
+	delete(h.excluded, rideID)
 }
 
 // normalizeCityText makes city-name comparisons ignore case and the accents
@@ -146,44 +185,94 @@ func (h *RideHandler) Create(c echo.Context) error {
 }
 
 // tryMatch looks for the nearest online driver in the ride's category,
-// expanding the search radius until one is found. There's no real driver
-// app push mechanism yet, so a driver who's already offline when this runs
-// only gets a chance again if RetryMatching is called after they log in —
-// see DriverHandler.GoOnline.
+// expanding the search radius until one is found, and offers her the ride —
+// she still has to accept it (see Accept/Decline) before anything is final.
+// A driver who's already offline when this runs only gets a chance again if
+// RetryMatchingForCategory is called after she logs in — see
+// DriverHandler.SetLocation.
 func (h *RideHandler) tryMatch(rideID string, origin models.Address, categoryID string) {
 	time.Sleep(matchingDelay)
-	h.matchOnce(context.Background(), rideID, origin, categoryID)
+	ride, err := h.rides.FindByID(context.Background(), rideID)
+	if err != nil {
+		return
+	}
+	h.matchOnce(context.Background(), ride)
 }
 
-func (h *RideHandler) matchOnce(ctx context.Context, rideID string, origin models.Address, categoryID string) bool {
-	candidates, err := h.drivers.FindOnlineByCategory(ctx, categoryID)
-	if err != nil {
-		log.Printf("ride %s: failed to list online drivers: %v", rideID, err)
+// matchOnce offers the ride to the nearest eligible online driver in her
+// category, skipping anyone who already declined/timed out on this same
+// ride (see excludeDriver) and anyone who already has a *different* pending
+// offer still live — offering never overwrites another driver's in-flight
+// offer. Returns false if no eligible driver was found or the ride already
+// isn't searching any more (raced with a cancellation, say).
+func (h *RideHandler) matchOnce(ctx context.Context, ride *models.Ride) bool {
+	if ride.Status != string(models.RideStatusSearching) {
+		return false
+	}
+	if ride.OfferedDriverID != nil && ride.OfferExpiresAt != nil && ride.OfferExpiresAt.After(time.Now().UTC()) {
 		return false
 	}
 
-	driver, ok := matching.Nearest(origin, candidates)
+	candidates, err := h.drivers.FindOnlineByCategory(ctx, ride.CategoryID)
+	if err != nil {
+		log.Printf("ride %s: failed to list online drivers: %v", ride.ID, err)
+		return false
+	}
+	eligible := candidates[:0]
+	for _, d := range candidates {
+		if !h.isExcluded(ride.ID, d.ID) {
+			eligible = append(eligible, d)
+		}
+	}
+
+	driver, ok := matching.Nearest(ride.Origin.Data, eligible)
 	if !ok {
 		return false
 	}
 
-	if err := h.rides.AssignDriver(ctx, rideID, driver.ID); err != nil {
-		log.Printf("ride %s: failed to assign driver %s: %v", rideID, driver.ID, err)
+	expiresAt := time.Now().UTC().Add(offerTTL)
+	if err := h.rides.SetOffer(ctx, ride.ID, driver.ID, expiresAt); err != nil {
+		log.Printf("ride %s: failed to offer to driver %s: %v", ride.ID, driver.ID, err)
 		return false
 	}
+	go h.watchOfferTimeout(ride.ID, driver.ID)
 	return true
 }
 
+// watchOfferTimeout gives a driver offerTTL to respond; if she still hasn't
+// (the offer is neither accepted nor declined by then), it's treated the
+// same as a decline — excluded, cleared, and re-offered to the next-nearest
+// driver — so an unattended app doesn't stall the ride forever.
+func (h *RideHandler) watchOfferTimeout(rideID, driverID string) {
+	time.Sleep(offerTTL)
+	ctx := context.Background()
+	ride, err := h.rides.FindByID(ctx, rideID)
+	if err != nil {
+		return
+	}
+	if ride.Status != string(models.RideStatusSearching) || ride.OfferedDriverID == nil || *ride.OfferedDriverID != driverID {
+		return // already accepted, declined, or the ride moved on some other way
+	}
+	h.excludeDriver(rideID, driverID)
+	if err := h.rides.ClearOffer(ctx, rideID); err != nil {
+		log.Printf("ride %s: failed to clear expired offer: %v", rideID, err)
+		return
+	}
+	ride.OfferedDriverID = nil
+	ride.OfferExpiresAt = nil
+	h.matchOnce(ctx, ride)
+}
+
 // RetryMatchingForCategory is called when a driver comes online, so rides
-// that were left "searching" because nobody was available get matched
-// without the passenger having to re-request.
+// that were left "searching" because nobody was available get offered to
+// her without the passenger having to re-request.
 func (h *RideHandler) RetryMatchingForCategory(ctx context.Context, categoryID string) {
 	rides, err := h.rides.FindSearchingByCategory(ctx, categoryID)
 	if err != nil || len(rides) == 0 {
 		return
 	}
-	for _, ride := range rides {
-		h.matchOnce(ctx, ride.ID, ride.Origin.Data, categoryID)
+	for i := range rides {
+		h.matchOnce(ctx, &rides[i])
 	}
 }
 
@@ -194,6 +283,14 @@ func (h *RideHandler) attachDriver(ctx context.Context, ride *models.Ride) {
 	driver, err := h.drivers.FindByID(ctx, *ride.DriverID)
 	if err != nil {
 		return
+	}
+	if driver.Lat != nil && driver.Lng != nil {
+		distanceKm := geo.DistanceKm(*driver.Lat, *driver.Lng, ride.Origin.Data.Lat, ride.Origin.Data.Lng)
+		etaMin := int(distanceKm*minutesPerKm + 0.5)
+		if etaMin < 1 {
+			etaMin = 1
+		}
+		driver.EtaMin = &etaMin
 	}
 	ride.Driver = driver
 }
@@ -266,11 +363,92 @@ func (h *RideHandler) Cancel(c echo.Context) error {
 	if err := h.rides.UpdateStatus(ctx, ride.ID, models.RideStatusCancelled); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.clearExcluded(ride.ID)
 	return c.NoContent(http.StatusNoContent)
+}
+
+// GetOffer returns the ride currently offered to this driver, if any and if
+// it hasn't expired — just enough (pickup/destination labels, distance, her
+// earning) for a driver to decide whether to accept, nothing that isn't
+// needed for that decision. Polled from the foreground app and, while
+// online, from the native background service too.
+func (h *RideHandler) GetOffer(c echo.Context) error {
+	ride, err := h.rides.FindPendingOfferForDriver(c.Request().Context(), c.Param("driverId"))
+	if errors.Is(err, repository.ErrNotFound) {
+		return c.JSON(http.StatusOK, nil)
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"rideId":        ride.ID,
+		"origin":        ride.Origin.Data,
+		"destination":   ride.Destination.Data,
+		"distanceKm":    ride.DistanceKm,
+		"driverEarning": ride.DriverEarning,
+		"expiresAt":     ride.OfferExpiresAt,
+	})
 }
 
 type driverActionRequest struct {
 	DriverID string `json:"driverId"`
+}
+
+// Accept finalizes a pending offer: the caller must be exactly the driver it
+// was offered to, and the offer must not have expired — otherwise another
+// driver may already be mid-offer for the same ride.
+func (h *RideHandler) Accept(c echo.Context) error {
+	var req driverActionRequest
+	if err := c.Bind(&req); err != nil || req.DriverID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "driverId is required")
+	}
+	ctx := c.Request().Context()
+	ride, err := h.rides.FindByID(ctx, c.Param("id"))
+	if errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "ride not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if ride.Status != string(models.RideStatusSearching) || ride.OfferedDriverID == nil || *ride.OfferedDriverID != req.DriverID {
+		return echo.NewHTTPError(http.StatusConflict, "this ride is no longer being offered to you")
+	}
+	if ride.OfferExpiresAt != nil && ride.OfferExpiresAt.Before(time.Now().UTC()) {
+		return echo.NewHTTPError(http.StatusConflict, "this offer has expired")
+	}
+	if err := h.rides.AssignDriver(ctx, ride.ID, req.DriverID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	h.clearExcluded(ride.ID)
+	return c.NoContent(http.StatusNoContent)
+}
+
+// Decline gives up this driver's pending offer immediately (rather than
+// waiting out offerTTL) and hands the ride to the next-nearest driver.
+func (h *RideHandler) Decline(c echo.Context) error {
+	var req driverActionRequest
+	if err := c.Bind(&req); err != nil || req.DriverID == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "driverId is required")
+	}
+	ctx := c.Request().Context()
+	ride, err := h.rides.FindByID(ctx, c.Param("id"))
+	if errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "ride not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if ride.OfferedDriverID == nil || *ride.OfferedDriverID != req.DriverID {
+		return c.NoContent(http.StatusNoContent) // nothing to decline — already moved on
+	}
+	h.excludeDriver(ride.ID, req.DriverID)
+	if err := h.rides.ClearOffer(ctx, ride.ID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	ride.OfferedDriverID = nil
+	ride.OfferExpiresAt = nil
+	go h.matchOnce(context.Background(), ride)
+	return c.NoContent(http.StatusNoContent)
 }
 
 // requireAssignedDriver is the MVP stand-in for real auth: it just checks

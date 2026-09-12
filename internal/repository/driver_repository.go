@@ -118,17 +118,39 @@ func (r *DriverRepository) SetOnline(ctx context.Context, driverID string, isOnl
 }
 
 // FindOnlineByCategory lists every approved, online driver with a known
-// location that can serve the given category — the ride matcher then ranks
-// these by distance itself (see internal/matching).
+// location that can serve the given category and isn't already on another
+// ride — the ride matcher then ranks these by distance itself (see
+// internal/matching). Excluding drivers with a live ride matters more now
+// than it used to: a driver mid-ride stays "online" the whole time, and
+// without this she could be offered — and accept — a second, overlapping
+// ride.
 func (r *DriverRepository) FindOnlineByCategory(ctx context.Context, categoryID string) ([]models.Driver, error) {
 	drivers := []models.Driver{}
 	query := fmt.Sprintf(
 		"SELECT d.* FROM drivers d "+
 			"JOIN driver_categories dc ON dc.driver_id = d.id "+
 			"WHERE dc.category_id = %s AND d.is_online = %s AND d.status = %s "+
-			"AND d.lat IS NOT NULL AND d.lng IS NOT NULL",
+			"AND d.lat IS NOT NULL AND d.lng IS NOT NULL "+
+			"AND NOT EXISTS (SELECT 1 FROM rides r WHERE r.driver_id = d.id AND r.status IN (%s, %s, %s))",
 		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
+		database.Placeholder(r.cfg, 4), database.Placeholder(r.cfg, 5), database.Placeholder(r.cfg, 6),
 	)
-	err := r.db.Query(ctx, &drivers, query, categoryID, true, string(models.DriverStatusApproved))
+	err := r.db.Query(ctx, &drivers, query, categoryID, true, string(models.DriverStatusApproved),
+		string(models.RideStatusAccepted), string(models.RideStatusArrived), string(models.RideStatusInProgress))
+	return drivers, err
+}
+
+// FindAllOnline lists every approved, online driver with a known location,
+// regardless of category — used for the ambient "nearby drivers" map shown
+// to passengers before requesting a ride, and to a driver wanting to see
+// where other drivers currently are.
+func (r *DriverRepository) FindAllOnline(ctx context.Context) ([]models.Driver, error) {
+	drivers := []models.Driver{}
+	query := fmt.Sprintf(
+		"SELECT * FROM drivers WHERE is_online = %s AND status = %s "+
+			"AND lat IS NOT NULL AND lng IS NOT NULL",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2),
+	)
+	err := r.db.Query(ctx, &drivers, query, true, string(models.DriverStatusApproved))
 	return drivers, err
 }

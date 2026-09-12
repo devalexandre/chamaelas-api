@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"golang.org/x/crypto/bcrypt"
 
+	"chamaelas-api/internal/geo"
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
 )
@@ -276,4 +278,52 @@ func (h *DriverHandler) ListCreditTransactions(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, transactions)
+}
+
+// nearbyDriverDTO is deliberately minimal — just enough to place a marker on
+// the map. A passenger's or driver's "who's around" view has no business
+// seeing the other side's name, plate, rating, etc.
+type nearbyDriverDTO struct {
+	ID  string  `json:"id"`
+	Lat float64 `json:"lat"`
+	Lng float64 `json:"lng"`
+}
+
+// Nearby lists every online driver's current position within radiusKm of
+// (lat, lng), for the live ambient map on the passenger's home screen and on
+// the driver's own "where's everyone else" view. excludeId (optional) drops
+// one driver from the results — a driver looking at this map shouldn't see
+// her own marker mixed in with everyone else's.
+func (h *DriverHandler) Nearby(c echo.Context) error {
+	lat, err := strconv.ParseFloat(c.QueryParam("lat"), 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "lat is required and must be a number")
+	}
+	lng, err := strconv.ParseFloat(c.QueryParam("lng"), 64)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "lng is required and must be a number")
+	}
+	radiusKm := 15.0
+	if raw := c.QueryParam("radiusKm"); raw != "" {
+		if parsed, err := strconv.ParseFloat(raw, 64); err == nil && parsed > 0 {
+			radiusKm = parsed
+		}
+	}
+	excludeID := c.QueryParam("excludeId")
+
+	drivers, err := h.drivers.FindAllOnline(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	nearby := make([]nearbyDriverDTO, 0, len(drivers))
+	for _, d := range drivers {
+		if d.ID == excludeID || d.Lat == nil || d.Lng == nil {
+			continue
+		}
+		if geo.DistanceKm(lat, lng, *d.Lat, *d.Lng) <= radiusKm {
+			nearby = append(nearby, nearbyDriverDTO{ID: d.ID, Lat: *d.Lat, Lng: *d.Lng})
+		}
+	}
+	return c.JSON(http.StatusOK, nearby)
 }

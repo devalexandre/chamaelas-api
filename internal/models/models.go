@@ -67,6 +67,10 @@ type Driver struct {
 
 	// Populated by the repository, never stored as a column directly.
 	Categories []Category `json:"categories,omitempty"`
+	// EtaMin is set only when this Driver is attached to a specific ride
+	// (see RideHandler.attachDriver) — minutes from her current location to
+	// the ride's pickup point. Nil outside that context.
+	EtaMin *int `json:"etaMin,omitempty"`
 }
 
 type BillingMode string
@@ -161,6 +165,11 @@ type Ride struct {
 	Status        string    `ksql:"status" json:"status"`
 	Rating        *int      `ksql:"rating" json:"rating,omitempty"`
 	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
+
+	// OfferedDriverID/OfferExpiresAt track a pending offer to one specific
+	// driver — internal matching state, not exposed to either app's JSON.
+	OfferedDriverID *string    `ksql:"offered_driver_id" json:"-"`
+	OfferExpiresAt  *time.Time `ksql:"offer_expires_at" json:"-"`
 
 	// Populated by the repository after loading driver_id. Has no ksql tag on
 	// purpose: fields without one are ignored by ksql's struct scanning, so
