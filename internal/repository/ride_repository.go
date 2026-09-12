@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vingarcia/ksql"
@@ -71,18 +72,6 @@ func (r *RideRepository) FindActiveByDriver(ctx context.Context, driverID string
 	return &ride, nil
 }
 
-// FindSearchingByCategory lists rides still waiting for a driver, used to
-// retry matching for a driver who just went online.
-func (r *RideRepository) FindSearchingByCategory(ctx context.Context, categoryID string) ([]models.Ride, error) {
-	rides := []models.Ride{}
-	query := fmt.Sprintf(
-		"FROM rides WHERE status = %s AND category_id = %s ORDER BY created_at",
-		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2),
-	)
-	err := r.db.Query(ctx, &rides, query, string(models.RideStatusSearching), categoryID)
-	return rides, err
-}
-
 func (r *RideRepository) ListByDriver(ctx context.Context, driverID string) ([]models.Ride, error) {
 	rides := []models.Ride{}
 	query := fmt.Sprintf(
@@ -93,58 +82,65 @@ func (r *RideRepository) ListByDriver(ctx context.Context, driverID string) ([]m
 	return rides, err
 }
 
-// AssignDriver finalizes a ride to a driver who accepted her offer — also
-// clears the offer fields since the offer/response cycle is done.
-func (r *RideRepository) AssignDriver(ctx context.Context, rideID, driverID string) error {
+// AssignDriver finalizes a ride to the driver who accepted it — guarded so
+// that of several drivers racing to accept the same ride, only the first
+// one's UPDATE actually matches a row (status must still be "searching" and
+// no driver assigned yet); everyone else's AssignDriver call affects zero
+// rows and reports it via the bool return, letting the caller tell a driver
+// "someone else already took this one" instead of silently double-booking.
+func (r *RideRepository) AssignDriver(ctx context.Context, rideID, driverID string) (bool, error) {
 	query := fmt.Sprintf(
-		"UPDATE rides SET driver_id = %s, status = %s, offered_driver_id = NULL, offer_expires_at = NULL WHERE id = %s",
-		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
+		"UPDATE rides SET driver_id = %s, status = %s WHERE id = %s AND status = %s AND driver_id IS NULL",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2),
+		database.Placeholder(r.cfg, 3), database.Placeholder(r.cfg, 4),
 	)
-	_, err := r.db.Exec(ctx, query, driverID, string(models.RideStatusAccepted), rideID)
-	return err
-}
-
-// SetOffer records that this ride is being offered to driverID until
-// expiresAt — the ride's own status stays "searching" throughout, since a
-// pending offer isn't guaranteed to be accepted.
-func (r *RideRepository) SetOffer(ctx context.Context, rideID, driverID string, expiresAt time.Time) error {
-	query := fmt.Sprintf(
-		"UPDATE rides SET offered_driver_id = %s, offer_expires_at = %s WHERE id = %s",
-		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
-	)
-	_, err := r.db.Exec(ctx, query, driverID, expiresAt, rideID)
-	return err
-}
-
-// ClearOffer removes a pending offer — called on decline, on timeout, and
-// (defensively) whenever a ride leaves "searching" some other way.
-func (r *RideRepository) ClearOffer(ctx context.Context, rideID string) error {
-	query := fmt.Sprintf(
-		"UPDATE rides SET offered_driver_id = NULL, offer_expires_at = NULL WHERE id = %s",
-		database.Placeholder(r.cfg, 1),
-	)
-	_, err := r.db.Exec(ctx, query, rideID)
-	return err
-}
-
-// FindPendingOfferForDriver returns the ride currently offered to this
-// driver, if the offer hasn't expired — the driver app polls this (and a
-// native background service does the same) to learn about a new ride
-// without the backend auto-assigning anything.
-func (r *RideRepository) FindPendingOfferForDriver(ctx context.Context, driverID string) (*models.Ride, error) {
-	var ride models.Ride
-	query := fmt.Sprintf(
-		"FROM rides WHERE offered_driver_id = %s AND status = %s AND offer_expires_at > %s",
-		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
-	)
-	err := r.db.QueryOne(ctx, &ride, query, driverID, string(models.RideStatusSearching), time.Now().UTC())
-	if errors.Is(err, ksql.ErrRecordNotFound) {
-		return nil, ErrNotFound
-	}
+	result, err := r.db.Exec(ctx, query, driverID, string(models.RideStatusAccepted), rideID, string(models.RideStatusSearching))
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	return &ride, nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
+}
+
+// RecordDecline marks that this driver passed on this ride — she won't be
+// shown it again, but every other eligible driver still sees it until
+// someone accepts.
+func (r *RideRepository) RecordDecline(ctx context.Context, rideID, driverID string) error {
+	query := fmt.Sprintf(
+		"INSERT INTO ride_declines (ride_id, driver_id, created_at) VALUES (%s, %s, %s)",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
+	)
+	_, err := r.db.Exec(ctx, query, rideID, driverID, time.Now().UTC())
+	return err
+}
+
+// FindNearestSearchingForDriver returns the closest still-searching ride in
+// one of these categories that this driver hasn't declined, or ErrNotFound
+// if there's nothing for her right now. Distance is computed by the caller
+// (Go-side haversine) since candidate counts are small at this scale —
+// there's no need for a spatial SQL extension.
+func (r *RideRepository) FindSearchingForCategories(ctx context.Context, categoryIDs []string, driverID string) ([]models.Ride, error) {
+	if len(categoryIDs) == 0 {
+		return nil, nil
+	}
+	rides := []models.Ride{}
+	placeholders := make([]string, len(categoryIDs))
+	args := []interface{}{string(models.RideStatusSearching)}
+	for i, id := range categoryIDs {
+		placeholders[i] = database.Placeholder(r.cfg, i+2)
+		args = append(args, id)
+	}
+	args = append(args, driverID)
+	query := fmt.Sprintf(
+		"FROM rides WHERE status = %s AND category_id IN (%s) "+
+			"AND NOT EXISTS (SELECT 1 FROM ride_declines rd WHERE rd.ride_id = rides.id AND rd.driver_id = %s)",
+		database.Placeholder(r.cfg, 1), strings.Join(placeholders, ", "), database.Placeholder(r.cfg, len(categoryIDs)+2),
+	)
+	err := r.db.Query(ctx, &rides, query, args...)
+	return rides, err
 }
 
 func (r *RideRepository) UpdateStatus(ctx context.Context, rideID string, status models.RideStatus) error {
@@ -225,6 +221,29 @@ func (r *RideRepository) ListDetailedByDateRange(ctx context.Context, dr DateRan
 		where,
 	)
 	err := r.db.Query(ctx, &rows, query, args...)
+	return rows, err
+}
+
+// ListRecentLog returns the most recent rides regardless of status, with
+// matching state joined in, for the admin panel's live debugging view. A
+// "searching" ride's decline_count is how many drivers already passed on it
+// — a ride stuck at "buscando" with a nonzero count means it was seen and
+// turned down, not that nobody's looking; a zero count means truly nobody
+// eligible is online yet.
+func (r *RideRepository) ListRecentLog(ctx context.Context, limit int) ([]models.RideLogRow, error) {
+	rows := []models.RideLogRow{}
+	query := fmt.Sprintf(
+		"SELECT r.id as id, r.created_at as created_at, r.status as status, r.category_id as category_id, "+
+			"u.name as customer_name, d.name as driver_name, "+
+			"(SELECT COUNT(*) FROM ride_declines rd WHERE rd.ride_id = r.id) as decline_count, "+
+			"r.distance_km as distance_km, r.price as price "+
+			"FROM rides r "+
+			"JOIN users u ON u.id = r.user_id "+
+			"LEFT JOIN drivers d ON d.id = r.driver_id "+
+			"ORDER BY r.created_at DESC LIMIT %s",
+		database.Placeholder(r.cfg, 1),
+	)
+	err := r.db.Query(ctx, &rows, query, limit)
 	return rows, err
 }
 

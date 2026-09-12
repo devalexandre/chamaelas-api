@@ -166,11 +166,6 @@ type Ride struct {
 	Rating        *int      `ksql:"rating" json:"rating,omitempty"`
 	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
 
-	// OfferedDriverID/OfferExpiresAt track a pending offer to one specific
-	// driver — internal matching state, not exposed to either app's JSON.
-	OfferedDriverID *string    `ksql:"offered_driver_id" json:"-"`
-	OfferExpiresAt  *time.Time `ksql:"offer_expires_at" json:"-"`
-
 	// Populated by the repository after loading driver_id. Has no ksql tag on
 	// purpose: fields without one are ignored by ksql's struct scanning, so
 	// this never gets treated as a column.
@@ -248,6 +243,22 @@ type RideDetailRow struct {
 	FinalPrice    *float64  `ksql:"final_price" json:"finalPrice,omitempty"`
 	AmountPaid    *float64  `ksql:"amount_paid" json:"amountPaid,omitempty"`
 	Status        string    `ksql:"status" json:"status"`
+}
+
+// RideLogRow is one row of the admin panel's live "Corridas" log — every
+// ride regardless of status, with enough matching state (who it's currently
+// offered to, when that offer expires) to see whether the matcher is
+// actually working, not just whether a ride eventually completed.
+type RideLogRow struct {
+	ID           string    `ksql:"id" json:"id"`
+	CreatedAt    time.Time `ksql:"created_at" json:"createdAt"`
+	Status       string    `ksql:"status" json:"status"`
+	CategoryID   string    `ksql:"category_id" json:"categoryId"`
+	CustomerName string    `ksql:"customer_name" json:"customerName"`
+	DriverName   *string   `ksql:"driver_name" json:"driverName,omitempty"`
+	DeclineCount int       `ksql:"decline_count" json:"declineCount"`
+	DistanceKm   float64   `ksql:"distance_km" json:"distanceKm"`
+	Price        float64   `ksql:"price" json:"price"`
 }
 
 // GatewayFeeRate is what Pagar.me itself charges the platform for a given

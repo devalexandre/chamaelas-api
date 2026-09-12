@@ -238,15 +238,6 @@ func (h *DriverHandler) SetLocation(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	if req.IsOnline {
-		categories, err := h.categories.ListByDriver(ctx, driverID)
-		if err == nil {
-			for _, category := range categories {
-				go h.rides.RetryMatchingForCategory(context.Background(), category.ID)
-			}
-		}
-	}
-
 	return c.NoContent(http.StatusNoContent)
 }
 

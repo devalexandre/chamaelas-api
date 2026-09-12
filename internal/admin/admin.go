@@ -99,6 +99,7 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 
 	g := e.Group("/admin", m.requireAdmin)
 	g.GET("", m.Dashboard)
+	g.GET("/rides", m.ListRides)
 	g.GET("/drivers", m.ListDrivers)
 	g.GET("/drivers/:id", m.ViewDriver)
 	g.GET("/drivers/:id/edit", m.EditDriverPage)

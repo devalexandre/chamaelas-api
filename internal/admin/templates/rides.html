@@ -1,0 +1,38 @@
+<h1>Corridas</h1>
+<p class="subtitle">As 100 corridas mais recentes, com o estado atual do pareamento — útil pra ver se uma corrida "presa em buscando" está de fato ofertada a alguém.</p>
+
+<div class="card">
+  {{if not .Rides}}
+    <p class="empty">Nenhuma corrida ainda.</p>
+  {{else}}
+  <table>
+    <thead>
+      <tr><th>Quando</th><th>Passageira</th><th>Categoria</th><th>Status</th><th>Motorista</th><th>Km</th><th>Preço</th></tr>
+    </thead>
+    <tbody>
+      {{range .Rides}}
+      <tr>
+        <td>{{.CreatedAt.Format "02/01 15:04"}}</td>
+        <td>{{.CustomerName}}</td>
+        <td>{{.CategoryID}}</td>
+        <td>
+          {{if eq .Status "searching"}}
+            <span class="pill pill-pending">Buscando</span>
+            {{if gt .DeclineCount 0}}<div class="hint-text" style="font-size:0.72rem; color:var(--muted); margin-top:2px;">recusada por {{.DeclineCount}} motorista{{if gt .DeclineCount 1}}s{{end}}</div>{{end}}
+          {{else if eq .Status "accepted"}}<span class="pill pill-active">Aceita</span>
+          {{else if eq .Status "arrived"}}<span class="pill pill-active">Motorista chegou</span>
+          {{else if eq .Status "in_progress"}}<span class="pill pill-active">Em andamento</span>
+          {{else if eq .Status "completed"}}<span class="pill pill-approved">Concluída</span>
+          {{else if eq .Status "cancelled"}}<span class="pill pill-inactive">Cancelada</span>
+          {{else}}<span class="pill pill-inactive">{{.Status}}</span>
+          {{end}}
+        </td>
+        <td>{{if .DriverName}}{{.DriverName}}{{else}}—{{end}}</td>
+        <td>{{printf "%.1f" .DistanceKm}}</td>
+        <td>R$ {{printf "%.2f" .Price}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

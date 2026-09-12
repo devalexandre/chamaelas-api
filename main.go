@@ -53,7 +53,7 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(userRepo)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
-	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, billingRepo, cityRepo)
+	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, billingRepo, cityRepo, categoryRepo)
 	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
 
