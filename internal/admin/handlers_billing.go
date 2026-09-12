@@ -44,6 +44,7 @@ func (m *Module) Billing(c echo.Context) error {
 
 	return render(c, "billing", "billing.html", map[string]any{
 		"CommissionPercent": settings.CommissionRate * 100,
+		"MapPollSeconds":    settings.MapPollSeconds,
 		"Drivers":           drivers,
 		"Payment":           paymentSettings,
 		"Wallet":            wallet,
@@ -58,6 +59,20 @@ func (m *Module) UpdateCommission(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/admin/billing")
 	}
 	if err := m.billing.SetCommissionRate(c.Request().Context(), percent/100); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.Redirect(http.StatusSeeOther, "/admin/billing")
+}
+
+// UpdateMapPollInterval sets how often (in seconds) the passenger and
+// driver apps' live maps refresh — GET /api/settings is what they actually
+// read this from.
+func (m *Module) UpdateMapPollInterval(c echo.Context) error {
+	seconds, err := strconv.Atoi(c.FormValue("mapPollSeconds"))
+	if err != nil || seconds < 5 {
+		return c.Redirect(http.StatusSeeOther, "/admin/billing")
+	}
+	if err := m.billing.SetMapPollSeconds(c.Request().Context(), seconds); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/billing")

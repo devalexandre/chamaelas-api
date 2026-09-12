@@ -102,6 +102,9 @@ type CreditTransaction struct {
 type PlatformSettings struct {
 	ID             int     `ksql:"id" json:"id"`
 	CommissionRate float64 `ksql:"commission_rate" json:"commissionRate"`
+	// MapPollSeconds is how often the apps' live maps (own position, nearby
+	// drivers) refresh — configurable here instead of hardcoded per app.
+	MapPollSeconds int `ksql:"map_poll_seconds" json:"mapPollSeconds"`
 }
 
 type Category struct {

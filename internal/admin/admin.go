@@ -116,6 +116,7 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/categories/:id/toggle", m.ToggleCategory)
 	g.GET("/billing", m.Billing)
 	g.POST("/billing/commission", m.UpdateCommission)
+	g.POST("/billing/map-poll", m.UpdateMapPollInterval)
 	g.POST("/billing/drivers/:id/adjust", m.AdjustDriverCredit)
 	g.POST("/billing/gateway", m.UpdateGatewaySettings)
 	g.POST("/billing/gateway-fees", m.UpdateGatewayFeeRates)

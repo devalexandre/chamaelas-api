@@ -42,6 +42,12 @@ func (r *BillingRepository) SetCommissionRate(ctx context.Context, rate float64)
 	return err
 }
 
+func (r *BillingRepository) SetMapPollSeconds(ctx context.Context, seconds int) error {
+	query := fmt.Sprintf("UPDATE platform_settings SET map_poll_seconds = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, seconds, 1)
+	return err
+}
+
 func (r *BillingRepository) SetDriverBillingMode(ctx context.Context, driverID string, mode models.BillingMode) error {
 	query := fmt.Sprintf("UPDATE drivers SET billing_mode = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
 	_, err := r.db.Exec(ctx, query, string(mode), driverID)

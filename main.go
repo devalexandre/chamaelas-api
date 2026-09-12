@@ -56,6 +56,7 @@ func main() {
 	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, billingRepo, cityRepo, categoryRepo)
 	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
+	settingsHandler := handlers.NewSettingsHandler(billingRepo)
 
 	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, gatewayFeeRateRepo, notificationRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
@@ -80,6 +81,7 @@ func main() {
 	api.POST("/auth/login", authHandler.Login)
 
 	api.GET("/categories", categoryHandler.ListActive)
+	api.GET("/settings", settingsHandler.PublicSettings)
 
 	api.POST("/driver/auth/signup", driverHandler.Signup)
 	api.POST("/driver/auth/login", driverHandler.Login)

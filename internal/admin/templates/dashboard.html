@@ -26,3 +26,106 @@
   <a class="btn btn-primary" href="/admin/drivers?status=pending">Revisar agora</a>
 </div>
 {{end}}
+
+<h3 style="margin: 1.5rem 0 0.7rem;">Motoristas online agora</h3>
+<div class="card" style="padding: 0; overflow: hidden;">
+  <div id="dashboard-map" style="height: 420px; background: var(--pink-50); position: relative;"></div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  .driver-map-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--white);
+    border-radius: 999px;
+    padding: 0.2rem 0.6rem 0.2rem 0.2rem;
+    box-shadow: var(--shadow-sm);
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+  .driver-map-label img,
+  .driver-map-label .avatar-fallback {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--pink-500);
+    color: var(--white);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+  }
+  .leaflet-tooltip.driver-map-tooltip {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+  }
+  .leaflet-tooltip.driver-map-tooltip::before { display: none; }
+</style>
+<script>
+  (function () {
+    var drivers = {{.DriverMarkers}};
+    var map = L.map('dashboard-map', { attributionControl: false }).setView([-23.5505, -46.6333], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    var dotIcon = L.divIcon({
+      className: '',
+      html: '<span style="display:block;width:14px;height:14px;border-radius:50%;background:#ff1493;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.35);"></span>',
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+
+    if (drivers.length === 0) {
+      document.getElementById('dashboard-map').insertAdjacentHTML(
+        'beforeend',
+        '<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.9rem; pointer-events:none;">Nenhuma motorista online agora.</div>'
+      );
+    }
+
+    // Built via DOM APIs rather than HTML string concatenation: a driver's
+    // name is user-submitted at signup, so interpolating it into innerHTML
+    // would let a name like "<img onerror=...>" run script in the admin's
+    // own session the moment this page loads.
+    function buildLabel(d) {
+      var initials = (d.name || '?').trim().split(/\s+/).slice(0, 2).map(function (p) { return p[0]; }).join('').toUpperCase();
+      var wrap = document.createElement('div');
+      wrap.className = 'driver-map-label';
+
+      if (d.photoUrl && /^https?:\/\//.test(d.photoUrl)) {
+        var img = document.createElement('img');
+        img.src = d.photoUrl;
+        img.alt = '';
+        wrap.appendChild(img);
+      } else {
+        var fallback = document.createElement('span');
+        fallback.className = 'avatar-fallback';
+        fallback.textContent = initials;
+        wrap.appendChild(fallback);
+      }
+
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = d.name;
+      wrap.appendChild(nameSpan);
+      return wrap;
+    }
+
+    var bounds = [];
+    drivers.forEach(function (d) {
+      var marker = L.marker([d.lat, d.lng], { icon: dotIcon }).addTo(map);
+      marker.bindTooltip(buildLabel(d), {
+        permanent: true, direction: 'top', offset: [0, -6], className: 'driver-map-tooltip',
+      });
+      bounds.push([d.lat, d.lng]);
+    });
+    if (bounds.length > 0) {
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+    }
+  })();
+</script>
