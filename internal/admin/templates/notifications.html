@@ -1,0 +1,81 @@
+<h1>Notificações</h1>
+<p class="subtitle">Envie um aviso para motoristas e/ou passageiras específicas. Elas veem no app na próxima vez que abrirem.</p>
+
+{{if .Sent}}<div class="flash">Notificação enviada.</div>{{end}}
+
+<div class="card">
+  <form method="post" action="/admin/notifications">
+    <div class="field">
+      <label for="title">Título</label>
+      <input id="title" name="title" placeholder="Ex: Manutenção programada" required>
+    </div>
+    <div class="field">
+      <label for="message">Mensagem</label>
+      <textarea id="message" name="message" rows="3" placeholder="Ex: O app ficará indisponível hoje das 23h às 00h." required></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="field">
+        <label>Motoristas</label>
+        <button type="button" class="select-all" data-target="driver-checks">Selecionar todas</button>
+        <div class="checkbox-list" id="driver-checks">
+          {{if not .Drivers}}
+            <p class="checkbox-list-empty">Nenhuma motorista cadastrada.</p>
+          {{else}}
+            {{range .Drivers}}
+            <label><input type="checkbox" name="driverIds" value="{{.ID}}"> {{.Name}}</label>
+            {{end}}
+          {{end}}
+        </div>
+      </div>
+      <div class="field">
+        <label>Passageiras</label>
+        <button type="button" class="select-all" data-target="user-checks">Selecionar todas</button>
+        <div class="checkbox-list" id="user-checks">
+          {{if not .Users}}
+            <p class="checkbox-list-empty">Nenhuma passageira cadastrada.</p>
+          {{else}}
+            {{range .Users}}
+            <label><input type="checkbox" name="userIds" value="{{.ID}}"> {{.Name}}</label>
+            {{end}}
+          {{end}}
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" type="submit" style="margin-top: 0.9rem;">Enviar notificação</button>
+  </form>
+</div>
+
+<h1 style="font-size: 1.15rem; margin-top: 2rem;">Enviadas recentemente</h1>
+<div class="card">
+  {{if not .Recent}}
+    <p class="empty">Nenhuma notificação enviada ainda.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Quando</th><th>Para</th><th>Título</th><th>Mensagem</th><th>Lida</th></tr></thead>
+    <tbody>
+      {{range .Recent}}
+      <tr>
+        <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+        <td>{{.RecipientName}} <span class="pill pill-inactive">{{if eq .RecipientType "driver"}}motorista{{else}}passageira{{end}}</span></td>
+        <td>{{.Title}}</td>
+        <td>{{.Message}}</td>
+        <td>{{if .ReadAt}}<span class="pill pill-active">Sim</span>{{else}}<span class="pill pill-pending">Não</span>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+
+<script>
+  document.querySelectorAll('.select-all').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var list = document.getElementById(btn.dataset.target);
+      var boxes = list.querySelectorAll('input[type="checkbox"]');
+      var allChecked = Array.from(boxes).every(function (b) { return b.checked; });
+      boxes.forEach(function (b) { b.checked = !allChecked; });
+    });
+  });
+</script>

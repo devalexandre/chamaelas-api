@@ -51,17 +51,18 @@ var sessionsOptions = sessions.Options{
 }
 
 type Module struct {
-	cfg         config.Config
-	admins      *repository.AdminRepository
-	users       *repository.UserRepository
-	drivers     *repository.DriverRepository
-	rides       *repository.RideRepository
-	categories  *repository.CategoryRepository
-	cities      *repository.CityRepository
-	billing     *repository.BillingRepository
-	pricing     *repository.PricingRepository
-	payments    *repository.PaymentSettingsRepository
-	gatewayFees *repository.GatewayFeeRateRepository
+	cfg           config.Config
+	admins        *repository.AdminRepository
+	users         *repository.UserRepository
+	drivers       *repository.DriverRepository
+	rides         *repository.RideRepository
+	categories    *repository.CategoryRepository
+	cities        *repository.CityRepository
+	billing       *repository.BillingRepository
+	pricing       *repository.PricingRepository
+	payments      *repository.PaymentSettingsRepository
+	gatewayFees   *repository.GatewayFeeRateRepository
+	notifications *repository.NotificationRepository
 }
 
 func NewModule(
@@ -76,11 +77,13 @@ func NewModule(
 	pricing *repository.PricingRepository,
 	payments *repository.PaymentSettingsRepository,
 	gatewayFees *repository.GatewayFeeRateRepository,
+	notifications *repository.NotificationRepository,
 ) *Module {
 	return &Module{
 		cfg: cfg, admins: admins, users: users, drivers: drivers,
 		rides: rides, categories: categories, cities: cities, billing: billing,
 		pricing: pricing, payments: payments, gatewayFees: gatewayFees,
+		notifications: notifications,
 	}
 }
 
@@ -127,6 +130,8 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/pricing/:id/update", m.UpdatePricingRule)
 	g.POST("/pricing/:id/clone", m.ClonePricingRule)
 	g.POST("/pricing/:id/delete", m.DeletePricingRule)
+	g.GET("/notifications", m.NotificationsPage)
+	g.POST("/notifications", m.SendNotification)
 }
 
 // requireAdmin redirects anonymous visitors to the login page. It's the only

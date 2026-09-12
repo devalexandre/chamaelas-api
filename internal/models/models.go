@@ -261,3 +261,22 @@ type GatewayFeeRate struct {
 	FeePercent    float64 `ksql:"fee_percent" json:"feePercent"`
 	SortOrder     int     `ksql:"sort_order" json:"sortOrder"`
 }
+
+const (
+	NotificationRecipientDriver = "driver"
+	NotificationRecipientUser   = "user"
+)
+
+// Notification is a message the admin panel sent to one driver or one
+// passenger — a broadcast to several recipients becomes one row per
+// recipient. There's no push delivery yet: each app polls for its own
+// unread rows.
+type Notification struct {
+	ID            string     `ksql:"id" json:"id"`
+	RecipientType string     `ksql:"recipient_type" json:"recipientType"`
+	RecipientID   string     `ksql:"recipient_id" json:"recipientId"`
+	Title         string     `ksql:"title" json:"title"`
+	Message       string     `ksql:"message" json:"message"`
+	CreatedAt     time.Time  `ksql:"created_at" json:"createdAt"`
+	ReadAt        *time.Time `ksql:"read_at" json:"readAt,omitempty"`
+}

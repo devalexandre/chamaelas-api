@@ -92,7 +92,14 @@
       .bracket-row .remove-row { grid-column: 1 / -1; }
     }
     .empty { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
-    .flash { background: var(--pink-50); border: 1px solid var(--pink-200); color: var(--pink-700); padding: 0.6rem 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.88rem; }
+    .flash { background: #e3f5ea; border: 1px solid #b9e4cb; color: var(--success); padding: 0.6rem 0.9rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.88rem; }
+    textarea { font: inherit; padding: 0.55rem 0.7rem; border: 1.5px solid var(--line); border-radius: 8px; background: var(--white); width: 100%; box-sizing: border-box; resize: vertical; }
+    .checkbox-list { max-height: 220px; overflow-y: auto; border: 1.5px solid var(--line); border-radius: 8px; padding: 0.4rem 0.7rem; }
+    .checkbox-list label { display: flex; align-items: center; gap: 0.5rem; font-weight: 500; color: var(--ink); text-transform: none; letter-spacing: normal; padding: 0.35rem 0; margin: 0; border-bottom: 1px solid var(--line); }
+    .checkbox-list label:last-child { border-bottom: none; }
+    .checkbox-list input[type="checkbox"] { width: auto; flex-shrink: 0; }
+    .checkbox-list-empty { color: var(--muted); font-size: 0.85rem; padding: 0.4rem 0; }
+    .select-all { font-size: 0.78rem; font-weight: 700; color: var(--pink-600); background: none; border: none; cursor: pointer; padding: 0; margin-bottom: 0.4rem; }
   </style>
 </head>
 <body>
@@ -106,6 +113,7 @@
       <a class="link{{if eq .Active "categories"}} active{{end}}" href="/admin/categories">Categorias</a>
       <a class="link{{if eq .Active "pricing"}} active{{end}}" href="/admin/pricing">Tarifas</a>
       <a class="link{{if eq .Active "billing"}} active{{end}}" href="/admin/billing">Financeiro</a>
+      <a class="link{{if eq .Active "notifications"}} active{{end}}" href="/admin/notifications">Notificações</a>
       <span class="nav-group-label">Relatórios</span>
       <a class="link sublink{{if eq .Active "reports-date"}} active{{end}}" href="/admin/reports/by-date">Por data</a>
       <a class="link sublink{{if eq .Active "reports-payment"}} active{{end}}" href="/admin/reports/by-payment-method">Por meio de pagamento</a>

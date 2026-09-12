@@ -49,13 +49,15 @@ func main() {
 	pricingRepo := repository.NewPricingRepository(db, cfg)
 	paymentSettingsRepo := repository.NewPaymentSettingsRepository(db, cfg)
 	gatewayFeeRateRepo := repository.NewGatewayFeeRateRepository(db, cfg)
+	notificationRepo := repository.NewNotificationRepository(db, cfg)
 
 	authHandler := handlers.NewAuthHandler(userRepo)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
 	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, billingRepo, cityRepo)
 	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo)
+	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
 
-	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, gatewayFeeRateRepo)
+	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, gatewayFeeRateRepo, notificationRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
 		log.Fatalf("failed to bootstrap admin account: %v", err)
 	}
@@ -90,6 +92,9 @@ func main() {
 	api.GET("/driver/:id/credit-transactions", driverHandler.ListCreditTransactions)
 	api.GET("/driver/:driverId/rides/current", rideHandler.CurrentForDriver)
 	api.GET("/driver/:driverId/rides/offer", rideHandler.GetOffer)
+	api.GET("/driver/:driverId/notifications", notificationHandler.ListForDriver)
+	api.GET("/users/:userId/notifications", notificationHandler.ListForUser)
+	api.POST("/notifications/:id/read", notificationHandler.MarkRead)
 
 	api.POST("/rides", rideHandler.Create)
 	api.GET("/rides", rideHandler.ListByUser)
