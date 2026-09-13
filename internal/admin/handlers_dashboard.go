@@ -1,8 +1,10 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"html/template"
+	"net/http"
 
 	"chamaelas-api/internal/models"
 
@@ -20,11 +22,15 @@ type dashboardDriverMarker struct {
 	Lng      float64 `json:"lng"`
 }
 
-func (m *Module) Dashboard(c echo.Context) error {
-	ctx := c.Request().Context()
-
-	drivers, _ := m.drivers.ListAll(ctx)
-	users, _ := m.users.ListAll(ctx)
+// onlineDriverMarkers returns the map markers for every driver currently
+// online (see models.Driver.IsReallyOnline), plus how many that is —
+// shared by the initial page render and the polling endpoint that keeps the
+// map's markers fresh without a full page reload.
+func (m *Module) onlineDriverMarkers(ctx context.Context) ([]dashboardDriverMarker, int, int, error) {
+	drivers, err := m.drivers.ListAll(ctx)
+	if err != nil {
+		return nil, 0, 0, err
+	}
 
 	pendingCount := 0
 	onlineCount := 0
@@ -33,7 +39,7 @@ func (m *Module) Dashboard(c echo.Context) error {
 		if d.Status == string(models.DriverStatusPending) {
 			pendingCount++
 		}
-		if d.IsOnline {
+		if d.IsReallyOnline() {
 			onlineCount++
 			if d.Lat != nil && d.Lng != nil {
 				markers = append(markers, dashboardDriverMarker{
@@ -42,16 +48,38 @@ func (m *Module) Dashboard(c echo.Context) error {
 			}
 		}
 	}
+	return markers, len(drivers), pendingCount, err
+}
+
+func (m *Module) Dashboard(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	markers, driverCount, pendingCount, err := m.onlineDriverMarkers(ctx)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	users, _ := m.users.ListAll(ctx)
+
 	markersJSON, err := json.Marshal(markers)
 	if err != nil {
 		markersJSON = []byte("[]")
 	}
 
 	return render(c, "dashboard", "dashboard.html", map[string]any{
-		"DriverCount":   len(drivers),
+		"DriverCount":   driverCount,
 		"UserCount":     len(users),
 		"PendingCount":  pendingCount,
-		"OnlineCount":   onlineCount,
+		"OnlineCount":   len(markers),
 		"DriverMarkers": template.JS(markersJSON),
 	})
+}
+
+// DashboardDriversOnline is polled by the dashboard's live map (every 60s)
+// to refresh online-driver positions without a full page reload.
+func (m *Module) DashboardDriversOnline(c echo.Context) error {
+	markers, _, _, err := m.onlineDriverMarkers(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, markers)
 }

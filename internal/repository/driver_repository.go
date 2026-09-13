@@ -117,17 +117,19 @@ func (r *DriverRepository) SetOnline(ctx context.Context, driverID string, isOnl
 	return err
 }
 
-// FindAllOnline lists every approved, online driver with a known location,
-// regardless of category — used for the ambient "nearby drivers" map shown
-// to passengers before requesting a ride, and to a driver wanting to see
-// where other drivers currently are.
+// FindAllOnline lists every approved driver who's both flagged online *and*
+// has pinged her location recently (see onlineStaleness) — used for the
+// ambient "nearby drivers" map shown to passengers before requesting a
+// ride, the admin dashboard's live map, and a driver wanting to see where
+// other drivers currently are. Without the freshness check, a driver whose
+// app died without cleanly going offline would show up as online forever.
 func (r *DriverRepository) FindAllOnline(ctx context.Context) ([]models.Driver, error) {
 	drivers := []models.Driver{}
 	query := fmt.Sprintf(
 		"SELECT * FROM drivers WHERE is_online = %s AND status = %s "+
-			"AND lat IS NOT NULL AND lng IS NOT NULL",
-		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2),
+			"AND lat IS NOT NULL AND lng IS NOT NULL AND location_updated_at > %s",
+		database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2), database.Placeholder(r.cfg, 3),
 	)
-	err := r.db.Query(ctx, &drivers, query, true, string(models.DriverStatusApproved))
+	err := r.db.Query(ctx, &drivers, query, true, string(models.DriverStatusApproved), time.Now().UTC().Add(-models.OnlineStaleness))
 	return drivers, err
 }

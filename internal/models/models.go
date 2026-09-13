@@ -73,6 +73,19 @@ type Driver struct {
 	EtaMin *int `json:"etaMin,omitempty"`
 }
 
+// OnlineStaleness is how long IsOnline=true is trusted without a fresh
+// location ping — the app pings every 20s while online, so a driver who
+// crashed, lost connectivity, or force-quit instead of toggling offline
+// otherwise leaves the flag stuck at true forever with no other signal.
+const OnlineStaleness = 90 * time.Second
+
+// IsReallyOnline is IsOnline narrowed by recency: the single definition of
+// "online" every caller (admin dashboard, driver list, nearby-driver maps)
+// should use, so a stale flag doesn't show a ghost driver as available.
+func (d Driver) IsReallyOnline() bool {
+	return d.IsOnline && d.LocationUpdatedAt != nil && time.Since(*d.LocationUpdatedAt) < OnlineStaleness
+}
+
 type BillingMode string
 
 const (

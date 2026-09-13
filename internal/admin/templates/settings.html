@@ -1,0 +1,16 @@
+<h1>Configurações</h1>
+<p class="subtitle">Ajustes gerais da plataforma que afetam os apps da passageira e da motorista.</p>
+
+<div class="card">
+  <h3 style="margin-top:0;">Mapa em tempo real</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    Com que frequência os apps da passageira e da motorista atualizam a própria posição e os marcadores de motoristas por perto no mapa.
+  </p>
+  <form method="post" action="/admin/settings/map-poll" class="form-row" style="align-items:flex-end;">
+    <div class="field" style="max-width:200px;">
+      <label for="mapPollSeconds">Intervalo (segundos)</label>
+      <input id="mapPollSeconds" name="mapPollSeconds" type="number" step="1" min="5" value="{{.MapPollSeconds}}">
+    </div>
+    <button class="btn btn-primary" type="submit" style="margin-bottom:0.9rem;">Salvar</button>
+  </form>
+</div>

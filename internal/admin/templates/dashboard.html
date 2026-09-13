@@ -71,7 +71,8 @@
 </style>
 <script>
   (function () {
-    var drivers = {{.DriverMarkers}};
+    var POLL_MS = 60000; // matches the "Intervalo (segundos)" setting's default
+    var initialDrivers = {{.DriverMarkers}};
     var map = L.map('dashboard-map', { attributionControl: false }).setView([-23.5505, -46.6333], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
 
@@ -82,12 +83,11 @@
       iconAnchor: [7, 7],
     });
 
-    if (drivers.length === 0) {
-      document.getElementById('dashboard-map').insertAdjacentHTML(
-        'beforeend',
-        '<div style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.9rem; pointer-events:none;">Nenhuma motorista online agora.</div>'
-      );
-    }
+    var mapEl = document.getElementById('dashboard-map');
+    var emptyHint = document.createElement('div');
+    emptyHint.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:0.9rem; pointer-events:none;';
+    emptyHint.textContent = 'Nenhuma motorista online agora.';
+    mapEl.appendChild(emptyHint);
 
     // Built via DOM APIs rather than HTML string concatenation: a driver's
     // name is user-submitted at signup, so interpolating it into innerHTML
@@ -116,16 +116,46 @@
       return wrap;
     }
 
-    var bounds = [];
-    drivers.forEach(function (d) {
-      var marker = L.marker([d.lat, d.lng], { icon: dotIcon }).addTo(map);
-      marker.bindTooltip(buildLabel(d), {
-        permanent: true, direction: 'top', offset: [0, -6], className: 'driver-map-tooltip',
+    var markersById = {};
+
+    function applyDrivers(drivers, fitToBounds) {
+      var seen = {};
+      var bounds = [];
+      drivers.forEach(function (d) {
+        seen[d.id] = true;
+        bounds.push([d.lat, d.lng]);
+        var existing = markersById[d.id];
+        if (existing) {
+          existing.setLatLng([d.lat, d.lng]);
+        } else {
+          var marker = L.marker([d.lat, d.lng], { icon: dotIcon }).addTo(map);
+          marker.bindTooltip(buildLabel(d), {
+            permanent: true, direction: 'top', offset: [0, -6], className: 'driver-map-tooltip',
+          });
+          markersById[d.id] = marker;
+        }
       });
-      bounds.push([d.lat, d.lng]);
-    });
-    if (bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+      Object.keys(markersById).forEach(function (id) {
+        if (!seen[id]) {
+          markersById[id].remove();
+          delete markersById[id];
+        }
+      });
+      emptyHint.style.display = drivers.length === 0 ? 'flex' : 'none';
+      if (fitToBounds && bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 14 });
+      }
     }
+
+    applyDrivers(initialDrivers, true);
+
+    setInterval(function () {
+      fetch('/admin/dashboard/drivers-online')
+        .then(function (res) { return res.ok ? res.json() : []; })
+        .then(function (drivers) { applyDrivers(drivers, false); })
+        .catch(function () {
+          // transient network hiccup — the next tick tries again
+        });
+    }, POLL_MS);
   })();
 </script>

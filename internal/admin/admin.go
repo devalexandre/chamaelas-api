@@ -99,6 +99,7 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 
 	g := e.Group("/admin", m.requireAdmin)
 	g.GET("", m.Dashboard)
+	g.GET("/dashboard/drivers-online", m.DashboardDriversOnline)
 	g.GET("/rides", m.ListRides)
 	g.GET("/drivers", m.ListDrivers)
 	g.GET("/drivers/:id", m.ViewDriver)
@@ -134,6 +135,8 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/pricing/:id/delete", m.DeletePricingRule)
 	g.GET("/notifications", m.NotificationsPage)
 	g.POST("/notifications", m.SendNotification)
+	g.GET("/settings", m.SettingsPage)
+	g.POST("/settings/map-poll", m.UpdateMapPollInterval)
 }
 
 // requireAdmin redirects anonymous visitors to the login page. It's the only
