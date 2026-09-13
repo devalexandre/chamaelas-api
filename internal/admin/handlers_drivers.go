@@ -10,6 +10,7 @@ import (
 
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/pagarme"
+	"chamaelas-api/internal/woovi"
 )
 
 func (m *Module) ListDrivers(c echo.Context) error {
@@ -72,12 +73,32 @@ func (m *Module) ViewDriver(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	walletTransactions, err := m.billing.ListWalletTransactions(ctx, driver.ID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Best-effort: the live Woovi balance shouldn't break this whole page if
+	// the gateway isn't configured yet or is briefly unreachable.
+	hasWalletBalance := false
+	walletBalance := 0.0
+	if driver.PixKey != "" {
+		if settings, err := m.woovi.Get(ctx); err == nil && settings.AppID != "" {
+			if cents, err := woovi.RecipientBalanceCents(settings.AppID, woovi.BaseURL(settings.Environment), driver.PixKey); err == nil {
+				hasWalletBalance = true
+				walletBalance = float64(cents) / 100
+			}
+		}
+	}
 
 	return render(c, "drivers", "driver_view.html", map[string]any{
-		"Driver":       driver,
-		"Categories":   categories,
-		"Transactions": transactions,
-		"Rides":        rides,
+		"Driver":             driver,
+		"Categories":         categories,
+		"Transactions":       transactions,
+		"Rides":              rides,
+		"WalletTransactions": walletTransactions,
+		"HasWalletBalance":   hasWalletBalance,
+		"WalletBalance":      walletBalance,
 	})
 }
 

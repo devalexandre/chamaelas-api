@@ -55,12 +55,14 @@
     }
     .tabs .tab-panel { display: none; }
     #tab-history:checked ~ .tab-nav label[for="tab-history"],
-    #tab-ledger:checked ~ .tab-nav label[for="tab-ledger"] {
+    #tab-ledger:checked ~ .tab-nav label[for="tab-ledger"],
+    #tab-wallet:checked ~ .tab-nav label[for="tab-wallet"] {
       color: var(--pink-700);
       border-bottom-color: var(--pink-500);
     }
     #tab-history:checked ~ #panel-history,
-    #tab-ledger:checked ~ #panel-ledger {
+    #tab-ledger:checked ~ #panel-ledger,
+    #tab-wallet:checked ~ #panel-wallet {
       display: block;
     }
     .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; text-decoration: none; }

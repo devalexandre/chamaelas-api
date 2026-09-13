@@ -61,6 +61,7 @@ type Module struct {
 	billing       *repository.BillingRepository
 	pricing       *repository.PricingRepository
 	payments      *repository.PaymentSettingsRepository
+	woovi         *repository.WooviSettingsRepository
 	gatewayFees   *repository.GatewayFeeRateRepository
 	notifications *repository.NotificationRepository
 }
@@ -76,13 +77,14 @@ func NewModule(
 	billing *repository.BillingRepository,
 	pricing *repository.PricingRepository,
 	payments *repository.PaymentSettingsRepository,
+	woovi *repository.WooviSettingsRepository,
 	gatewayFees *repository.GatewayFeeRateRepository,
 	notifications *repository.NotificationRepository,
 ) *Module {
 	return &Module{
 		cfg: cfg, admins: admins, users: users, drivers: drivers,
 		rides: rides, categories: categories, cities: cities, billing: billing,
-		pricing: pricing, payments: payments, gatewayFees: gatewayFees,
+		pricing: pricing, payments: payments, woovi: woovi, gatewayFees: gatewayFees,
 		notifications: notifications,
 	}
 }
@@ -118,11 +120,11 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/categories", m.CreateCategory)
 	g.POST("/categories/:id/toggle", m.ToggleCategory)
 	g.GET("/billing", m.Billing)
-	g.POST("/billing/commission", m.UpdateCommission)
 	g.POST("/billing/map-poll", m.UpdateMapPollInterval)
 	g.POST("/billing/drivers/:id/adjust", m.AdjustDriverCredit)
 	g.POST("/billing/gateway", m.UpdateGatewaySettings)
 	g.POST("/billing/gateway-fees", m.UpdateGatewayFeeRates)
+	g.POST("/billing/woovi", m.UpdateWooviSettings)
 	g.GET("/reports/by-date", m.ReportByDate)
 	g.GET("/reports/by-date/export", m.ExportReportByDate)
 	g.GET("/reports/by-category", m.ReportByCategory)
@@ -139,6 +141,8 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/notifications", m.SendNotification)
 	g.GET("/settings", m.SettingsPage)
 	g.POST("/settings/map-poll", m.UpdateMapPollInterval)
+	g.POST("/settings/commission", m.UpdateCommission)
+	g.POST("/settings/cities/:id/commission", m.UpdateCityCommissionRate)
 }
 
 // requireAdmin redirects anonymous visitors to the login page. It's the only

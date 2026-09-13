@@ -17,15 +17,16 @@ type Address struct {
 }
 
 type User struct {
-	ID           string    `ksql:"id" json:"id"`
-	Name         string    `ksql:"name" json:"name"`
-	Email        string    `ksql:"email" json:"email"`
-	Phone        string    `ksql:"phone" json:"phone"`
-	CPF          string    `ksql:"cpf" json:"cpf"`
-	BirthDate    string    `ksql:"birth_date" json:"birthDate"`
-	PhotoURL     string    `ksql:"photo_url" json:"photoUrl,omitempty"`
-	PasswordHash string    `ksql:"password_hash" json:"-"`
-	CreatedAt    time.Time `ksql:"created_at" json:"createdAt"`
+	ID            string    `ksql:"id" json:"id"`
+	Name          string    `ksql:"name" json:"name"`
+	Email         string    `ksql:"email" json:"email"`
+	Phone         string    `ksql:"phone" json:"phone"`
+	CPF           string    `ksql:"cpf" json:"cpf"`
+	BirthDate     string    `ksql:"birth_date" json:"birthDate"`
+	PhotoURL      string    `ksql:"photo_url" json:"photoUrl,omitempty"`
+	PasswordHash  string    `ksql:"password_hash" json:"-"`
+	CreditBalance float64   `ksql:"credit_balance" json:"creditBalance"`
+	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
 }
 
 type DriverStatus string
@@ -63,7 +64,11 @@ type Driver struct {
 	BankAccountNumber  string     `ksql:"bank_account_number" json:"bankAccountNumber,omitempty"`
 	BankAccountType    string     `ksql:"bank_account_type" json:"bankAccountType,omitempty"`
 	PagarmeRecipientID string     `ksql:"pagarme_recipient_id" json:"pagarmeRecipientId,omitempty"`
-	CreatedAt          time.Time  `ksql:"created_at" json:"createdAt"`
+	// PixKey is always the CANONICAL key Woovi returns from EnsureRecipient,
+	// never the raw value the driver typed — see internal/woovi. Empty means
+	// she hasn't registered one yet, so her revenue wallet has no subaccount.
+	PixKey    string    `ksql:"pix_key" json:"pixKey,omitempty"`
+	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
 
 	// Populated by the repository, never stored as a column directly.
 	Categories []Category `json:"categories,omitempty"`
@@ -112,6 +117,90 @@ type CreditTransaction struct {
 	CreatedAt    time.Time `ksql:"created_at" json:"createdAt"`
 }
 
+type WalletTransactionType string
+
+const (
+	WalletTransactionRideEarning   WalletTransactionType = "ride_earning"
+	WalletTransactionWithdrawal    WalletTransactionType = "withdrawal"
+	WalletTransactionWithdrawalFee WalletTransactionType = "withdrawal_fee"
+)
+
+// WalletTransaction is an audit-only entry for a driver's revenue wallet —
+// the spendable balance itself always comes live from Woovi, never summed
+// from this table. A row is written even when crediting a ride's earning is
+// skipped or fails, so that gap stays visible instead of silent.
+type WalletTransaction struct {
+	ID                    string    `ksql:"id" json:"id"`
+	DriverID              string    `ksql:"driver_id" json:"driverId"`
+	Type                  string    `ksql:"type" json:"type"`
+	Amount                float64   `ksql:"amount" json:"amount"`
+	RideID                *string   `ksql:"ride_id" json:"rideId,omitempty"`
+	ProviderTransactionID *string   `ksql:"provider_transaction_id" json:"providerTransactionId,omitempty"`
+	Note                  string    `ksql:"note" json:"note,omitempty"`
+	CreatedAt             time.Time `ksql:"created_at" json:"createdAt"`
+}
+
+type CreditTopupStatus string
+
+const (
+	CreditTopupPending CreditTopupStatus = "pending"
+	CreditTopupPaid    CreditTopupStatus = "paid"
+	CreditTopupExpired CreditTopupStatus = "expired"
+)
+
+// CreditTopup tracks a driver's prepaid-credit top-up charge — id is
+// Woovi's correlationID, so the webhook can look up "which driver, how
+// much" from a bare correlationID alone.
+type CreditTopup struct {
+	ID          string     `ksql:"id" json:"id"`
+	DriverID    string     `ksql:"driver_id" json:"driverId"`
+	AmountCents int        `ksql:"amount_cents" json:"amountCents"`
+	Status      string     `ksql:"status" json:"status"`
+	CreatedAt   time.Time  `ksql:"created_at" json:"createdAt"`
+	PaidAt      *time.Time `ksql:"paid_at" json:"paidAt,omitempty"`
+}
+
+// UserCreditTransaction mirrors CreditTransaction for a passenger's
+// spend-only prepaid credit (pays for ride prices, never withdrawable).
+type UserCreditTransaction struct {
+	ID           string    `ksql:"id" json:"id"`
+	UserID       string    `ksql:"user_id" json:"userId"`
+	Type         string    `ksql:"type" json:"type"`
+	Amount       float64   `ksql:"amount" json:"amount"`
+	RideID       *string   `ksql:"ride_id" json:"rideId,omitempty"`
+	BalanceAfter float64   `ksql:"balance_after" json:"balanceAfter"`
+	Note         string    `ksql:"note" json:"note,omitempty"`
+	CreatedAt    time.Time `ksql:"created_at" json:"createdAt"`
+}
+
+const (
+	UserCreditTopupType      = "topup"
+	UserCreditRidePayment    = "ride_payment"
+	UserCreditAdjustmentType = "adjustment"
+)
+
+// UserCreditTopup mirrors CreditTopup for a passenger's credit top-up.
+type UserCreditTopup struct {
+	ID          string     `ksql:"id" json:"id"`
+	UserID      string     `ksql:"user_id" json:"userId"`
+	AmountCents int        `ksql:"amount_cents" json:"amountCents"`
+	Status      string     `ksql:"status" json:"status"`
+	CreatedAt   time.Time  `ksql:"created_at" json:"createdAt"`
+	PaidAt      *time.Time `ksql:"paid_at" json:"paidAt,omitempty"`
+}
+
+// WooviSettings holds the Woovi (PIX) gateway credentials and the
+// platform's own Pix key — a single configuration row edited from the
+// admin panel's financial section, same shape as PaymentSettings.
+type WooviSettings struct {
+	ID                  int    `ksql:"id" json:"id"`
+	Environment         string `ksql:"environment" json:"environment"`
+	AppID               string `ksql:"app_id" json:"-"`
+	WebhookSecret       string `ksql:"webhook_secret" json:"-"`
+	WebhookPublicKeyB64 string `ksql:"webhook_public_key_b64" json:"-"`
+	PlatformPixKey      string `ksql:"platform_pix_key" json:"platformPixKey"`
+}
+
 type PlatformSettings struct {
 	ID             int     `ksql:"id" json:"id"`
 	CommissionRate float64 `ksql:"commission_rate" json:"commissionRate"`
@@ -132,6 +221,9 @@ type City struct {
 	Name   string `ksql:"name" json:"name"`
 	UF     string `ksql:"uf" json:"uf"`
 	Active bool   `ksql:"active" json:"active"`
+	// CommissionRate overrides PlatformSettings.CommissionRate for rides
+	// whose origin matches this city; nil means "use the platform default".
+	CommissionRate *float64 `ksql:"commission_rate" json:"commissionRate,omitempty"`
 }
 
 type Admin struct {
@@ -182,10 +274,13 @@ type Ride struct {
 	Rating        *int      `ksql:"rating" json:"rating,omitempty"`
 	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
 
-	// Populated by the repository after loading driver_id. Has no ksql tag on
-	// purpose: fields without one are ignored by ksql's struct scanning, so
-	// this never gets treated as a column.
+	// Populated by the handler after loading driver_id/user_id — never a
+	// column directly (no ksql tag). Driver is attached for the passenger's
+	// own view of a ride; User (the passenger) is attached for the driver's
+	// view once she's accepted — never during the pre-accept offer, which
+	// only ever needs pickup/destination to decide.
 	Driver *Driver `json:"driver,omitempty"`
+	User   *User   `json:"user,omitempty"`
 }
 
 // PricingRule is a day-of-week + time-window scope (optionally narrowed to
@@ -293,6 +388,17 @@ const (
 	NotificationRecipientDriver = "driver"
 	NotificationRecipientUser   = "user"
 )
+
+// WebhookEventRecord dedups inbound webhook deliveries: (provider, event_key)
+// is unique, so a redelivered event is silently dropped rather than
+// double-processed (e.g. double-crediting a top-up).
+type WebhookEventRecord struct {
+	ID        string    `ksql:"id" json:"id"`
+	Provider  string    `ksql:"provider" json:"provider"`
+	EventKey  string    `ksql:"event_key" json:"eventKey"`
+	Payload   string    `ksql:"payload" json:"-"`
+	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
+}
 
 // Notification is a message the admin panel sent to one driver or one
 // passenger — a broadcast to several recipients becomes one row per

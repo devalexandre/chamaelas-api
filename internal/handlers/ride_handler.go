@@ -16,6 +16,7 @@ import (
 	"chamaelas-api/internal/geo"
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
+	"chamaelas-api/internal/woovi"
 )
 
 const (
@@ -25,15 +26,17 @@ const (
 )
 
 type RideHandler struct {
-	rides      *repository.RideRepository
-	drivers    *repository.DriverRepository
-	billing    *repository.BillingRepository
-	cities     *repository.CityRepository
-	categories *repository.CategoryRepository
+	rides         *repository.RideRepository
+	drivers       *repository.DriverRepository
+	users         *repository.UserRepository
+	billing       *repository.BillingRepository
+	cities        *repository.CityRepository
+	categories    *repository.CategoryRepository
+	wooviSettings *repository.WooviSettingsRepository
 }
 
-func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository) *RideHandler {
-	return &RideHandler{rides: rides, drivers: drivers, billing: billing, cities: cities, categories: categories}
+func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, users *repository.UserRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository, wooviSettings *repository.WooviSettingsRepository) *RideHandler {
+	return &RideHandler{rides: rides, drivers: drivers, users: users, billing: billing, cities: cities, categories: categories, wooviSettings: wooviSettings}
 }
 
 // normalizeCityText makes city-name comparisons ignore case and the accents
@@ -52,22 +55,23 @@ func normalizeCityText(s string) string {
 	return replacer.Replace(s)
 }
 
-// cityIsServed checks the origin against the admin panel's active cities —
-// requesting a ride from a city that isn't registered there is rejected,
-// same as any other "app not available here yet" gate.
-func (h *RideHandler) cityIsServed(ctx context.Context, origin models.Address) (bool, error) {
+// findCityForAddress matches addr against the admin panel's active cities —
+// used both to reject a ride from a city that isn't registered ("app not
+// available here yet") and to resolve that city's own commission-rate
+// override, if it has one.
+func (h *RideHandler) findCityForAddress(ctx context.Context, addr models.Address) (*models.City, error) {
 	cities, err := h.cities.ListActive(ctx)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	originCity := normalizeCityText(origin.City)
-	originUF := strings.ToLower(strings.TrimSpace(origin.UF))
-	for _, city := range cities {
-		if normalizeCityText(city.Name) == originCity && strings.ToLower(city.UF) == originUF {
-			return true, nil
+	addrCity := normalizeCityText(addr.City)
+	addrUF := strings.ToLower(strings.TrimSpace(addr.UF))
+	for i := range cities {
+		if normalizeCityText(cities[i].Name) == addrCity && strings.ToLower(cities[i].UF) == addrUF {
+			return &cities[i], nil
 		}
 	}
-	return false, nil
+	return nil, nil
 }
 
 type createRideRequest struct {
@@ -101,11 +105,11 @@ func (h *RideHandler) Create(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
-	served, err := h.cityIsServed(ctx, req.Origin)
+	city, err := h.findCityForAddress(ctx, req.Origin)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if !served {
+	if city == nil {
 		return echo.NewHTTPError(http.StatusUnprocessableEntity, fmt.Sprintf("o Chama Elas ainda não está disponível em %s/%s", req.Origin.City, req.Origin.UF))
 	}
 
@@ -114,6 +118,9 @@ func (h *RideHandler) Create(c echo.Context) error {
 	commissionRate := 0.0
 	if settings, err := h.billing.GetSettings(ctx); err == nil {
 		commissionRate = settings.CommissionRate
+	}
+	if city.CommissionRate != nil {
+		commissionRate = *city.CommissionRate
 	}
 	platformFee := float64(int(driverEarning*commissionRate*100)) / 100
 	price := driverEarning + platformFee
@@ -157,6 +164,18 @@ func (h *RideHandler) attachDriver(ctx context.Context, ride *models.Ride) {
 		driver.EtaMin = &etaMin
 	}
 	ride.Driver = driver
+}
+
+// attachUser attaches the passenger's own profile (name, photo — used by
+// the driver's accepted-ride screen) — deliberately not called from the
+// pre-accept offer, which has no business showing passenger identity before
+// she's committed to the ride.
+func (h *RideHandler) attachUser(ctx context.Context, ride *models.Ride) {
+	user, err := h.users.FindByID(ctx, ride.UserID)
+	if err != nil {
+		return
+	}
+	ride.User = user
 }
 
 func (h *RideHandler) Get(c echo.Context) error {
@@ -209,6 +228,7 @@ func (h *RideHandler) CurrentForDriver(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	h.attachUser(ctx, ride)
 	return c.JSON(http.StatusOK, ride)
 }
 
@@ -413,9 +433,51 @@ func (h *RideHandler) Complete(c echo.Context) error {
 				log.Printf("ride %s: failed to debit prepaid credit: %v", ride.ID, err)
 			}
 		}
+		if err == nil {
+			h.creditWalletEarning(ctx, driver, ride)
+		}
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// creditWalletEarning credits a completed ride's DriverEarning into the
+// driver's Woovi revenue wallet — separate from (and unrelated to) the
+// prepaid credit_balance debited above. Every driver nets DriverEarning
+// regardless of billing mode, so this always runs. A wallet_transactions
+// row is written either way: with the real provider_transaction_id on
+// success, or with a note explaining why on skip/failure (no Pix key yet,
+// gateway not configured, transfer error) — log-and-continue, matching the
+// rest of this function; no retry/queue for this MVP.
+func (h *RideHandler) creditWalletEarning(ctx context.Context, driver *models.Driver, ride *models.Ride) {
+	if driver.PixKey == "" {
+		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "sem chave Pix cadastrada"); err != nil {
+			log.Printf("ride %s: failed to record skipped wallet credit: %v", ride.ID, err)
+		}
+		return
+	}
+
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil || settings.AppID == "" || settings.PlatformPixKey == "" {
+		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "gateway de pagamento não configurado"); err != nil {
+			log.Printf("ride %s: failed to record skipped wallet credit: %v", ride.ID, err)
+		}
+		return
+	}
+
+	cents := int(ride.DriverEarning * 100)
+	baseURL := woovi.BaseURL(settings.Environment)
+	if err := woovi.RecipientTransfer(settings.AppID, baseURL, settings.PlatformPixKey, driver.PixKey, cents); err != nil {
+		log.Printf("ride %s: failed to credit driver %s's wallet: %v", ride.ID, driver.ID, err)
+		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "falha ao transferir: "+err.Error()); err != nil {
+			log.Printf("ride %s: failed to record failed wallet credit: %v", ride.ID, err)
+		}
+		return
+	}
+
+	if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, ""); err != nil {
+		log.Printf("ride %s: wallet credited but failed to record ledger row: %v", ride.ID, err)
+	}
 }
 
 type rateRideRequest struct {

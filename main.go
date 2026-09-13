@@ -40,6 +40,7 @@ func main() {
 	defer db.Close()
 
 	userRepo := repository.NewUserRepository(db, cfg)
+	userCreditRepo := repository.NewUserCreditRepository(db, cfg)
 	driverRepo := repository.NewDriverRepository(db, cfg)
 	rideRepo := repository.NewRideRepository(db, cfg)
 	categoryRepo := repository.NewCategoryRepository(db, cfg)
@@ -48,17 +49,19 @@ func main() {
 	billingRepo := repository.NewBillingRepository(db, cfg)
 	pricingRepo := repository.NewPricingRepository(db, cfg)
 	paymentSettingsRepo := repository.NewPaymentSettingsRepository(db, cfg)
+	wooviSettingsRepo := repository.NewWooviSettingsRepository(db, cfg)
 	gatewayFeeRateRepo := repository.NewGatewayFeeRateRepository(db, cfg)
 	notificationRepo := repository.NewNotificationRepository(db, cfg)
 
-	authHandler := handlers.NewAuthHandler(userRepo)
+	authHandler := handlers.NewAuthHandler(userRepo, userCreditRepo, wooviSettingsRepo)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
-	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, billingRepo, cityRepo, categoryRepo)
-	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo)
+	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo)
+	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo, wooviSettingsRepo)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
 	settingsHandler := handlers.NewSettingsHandler(billingRepo)
+	webhookHandler := handlers.NewWebhookHandler(wooviSettingsRepo, billingRepo, userCreditRepo)
 
-	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, gatewayFeeRateRepo, notificationRepo)
+	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
 		log.Fatalf("failed to bootstrap admin account: %v", err)
 	}
@@ -72,6 +75,9 @@ func main() {
 	e.GET("/healthz", func(c echo.Context) error {
 		return c.JSON(200, map[string]string{"status": "ok", "dbDriver": cfg.DBDriver})
 	})
+	// Registered on the root router, not under /api — this exact path is
+	// already configured as the endpoint in Woovi's dashboard.
+	e.POST("/webhooks/payment", webhookHandler.HandlePaymentWebhook)
 
 	adminModule.RegisterRoutes(e)
 
@@ -79,6 +85,8 @@ func main() {
 
 	api.POST("/auth/signup", authHandler.Signup)
 	api.POST("/auth/login", authHandler.Login)
+	api.POST("/users/:userId/credit/topup", authHandler.CreateCreditTopup)
+	api.GET("/users/:userId/credit-transactions", authHandler.ListCreditTransactions)
 
 	api.GET("/categories", categoryHandler.ListActive)
 	api.GET("/settings", settingsHandler.PublicSettings)
@@ -92,6 +100,10 @@ func main() {
 	api.DELETE("/driver/:id/categories/:categoryId", driverHandler.RemoveCategory)
 	api.POST("/driver/:id/billing-mode", driverHandler.SetBillingMode)
 	api.GET("/driver/:id/credit-transactions", driverHandler.ListCreditTransactions)
+	api.POST("/driver/:id/pix-key", driverHandler.SetPixKey)
+	api.POST("/driver/:id/credit/topup", driverHandler.CreateCreditTopup)
+	api.GET("/driver/:id/wallet", driverHandler.GetWallet)
+	api.POST("/driver/:id/wallet/withdraw", driverHandler.Withdraw)
 	api.GET("/driver/:driverId/rides/current", rideHandler.CurrentForDriver)
 	api.GET("/driver/:driverId/rides/offer", rideHandler.GetOffer)
 	api.GET("/driver/:driverId/notifications", notificationHandler.ListForDriver)

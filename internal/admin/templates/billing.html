@@ -1,21 +1,5 @@
 <h1>Financeiro</h1>
-<p class="subtitle">Taxa da plataforma, gateway de pagamento, nossa carteira e créditos pré-pagos das motoristas.</p>
-
-<div class="card">
-  <h3 style="margin-top:0;">Taxa de comissão</h3>
-  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
-    A taxa é <strong>somada</strong> ao preço da corrida — a passageira paga o valor da motorista + a taxa da plataforma.
-    A motorista sempre recebe o valor cheio da corrida: no modo "por corrida" a taxa é retida no split do pagamento;
-    no modo "pré-pago" ela recebe o valor cheio e a taxa é debitada dos créditos dela.
-  </p>
-  <form method="post" action="/admin/billing/commission" class="form-row" style="align-items:flex-end;">
-    <div class="field" style="max-width:160px;">
-      <label for="commissionPercent">Percentual (%)</label>
-      <input id="commissionPercent" name="commissionPercent" type="number" step="0.1" min="0" max="100" value="{{printf "%.1f" .CommissionPercent}}">
-    </div>
-    <button class="btn btn-primary" type="submit" style="margin-bottom:0.9rem;">Salvar</button>
-  </form>
-</div>
+<p class="subtitle">Gateways de pagamento, nossa carteira e créditos pré-pagos das motoristas. A taxa de comissão por corrida agora fica em <a href="/admin/settings">Configurações</a>.</p>
 
 <div class="card">
   <h3 style="margin-top:0;">Taxas da Pagar.me</h3>
@@ -63,6 +47,40 @@
       <div class="field">
         <label for="platformRecipientId">Recipient ID da plataforma (nossa carteira)</label>
         <input id="platformRecipientId" name="platformRecipientId" value="{{.Payment.PlatformRecipientID}}" placeholder="re_...">
+      </div>
+    </div>
+    <button class="btn btn-primary" type="submit">Salvar credenciais</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Gateway de pagamento — Woovi (Pix)</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    Usado para a recarga de crédito das motoristas/passageiras e para a carteira de ganhos (saque via Pix) das motoristas.
+    O webhook já está configurado apontando para <code>/webhooks/payment</code> — só falta preencher as credenciais abaixo.
+  </p>
+  <form method="post" action="/admin/billing/woovi">
+    <div class="form-row">
+      <div class="field">
+        <label for="wooviEnvironment">Ambiente</label>
+        <select id="wooviEnvironment" name="environment">
+          <option value="sandbox"{{if ne .Woovi.Environment "production"}} selected{{end}}>Sandbox (testes)</option>
+          <option value="production"{{if eq .Woovi.Environment "production"}} selected{{end}}>Produção</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="appId">App ID</label>
+        <input id="appId" name="appId" type="password" placeholder="{{if .Woovi.AppID}}•••••••• (deixe em branco para manter){{else}}Client_Id_...:Client_Secret_...{{end}}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label for="webhookSecret">Token do webhook</label>
+        <input id="webhookSecret" name="webhookSecret" type="password" placeholder="{{if .Woovi.WebhookSecret}}•••••••• (deixe em branco para manter){{else}}o mesmo valor cadastrado no cabeçalho Authorization no painel da Woovi{{end}}">
+      </div>
+      <div class="field">
+        <label for="platformPixKey">Chave Pix da plataforma</label>
+        <input id="platformPixKey" name="platformPixKey" value="{{.Woovi.PlatformPixKey}}" placeholder="usada para repassar ganhos e cobrar a taxa de saque">
       </div>
     </div>
     <button class="btn btn-primary" type="submit">Salvar credenciais</button>

@@ -44,3 +44,11 @@ func (r *CityRepository) SetActive(ctx context.Context, id string, active bool) 
 	_, err := r.db.Exec(ctx, query, active, id)
 	return err
 }
+
+// SetCommissionRate overrides the platform's default commission rate for
+// this city; rate=nil clears the override back to "use the platform default".
+func (r *CityRepository) SetCommissionRate(ctx context.Context, id string, rate *float64) error {
+	query := fmt.Sprintf("UPDATE cities SET commission_rate = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, rate, id)
+	return err
+}

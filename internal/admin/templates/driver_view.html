@@ -45,9 +45,16 @@
     </div>
     <div class="stat-tile">
       <div class="value">R$ {{printf "%.2f" .Driver.CreditBalance}}</div>
-      <div class="label">Saldo de créditos</div>
+      <div class="label">Saldo de créditos (pré-pago)</div>
+    </div>
+    <div class="stat-tile">
+      <div class="value">{{if .HasWalletBalance}}R$ {{printf "%.2f" .WalletBalance}}{{else}}—{{end}}</div>
+      <div class="label">Saldo da carteira (ganhos, via Woovi)</div>
     </div>
   </div>
+  <p style="color:var(--muted); font-size:0.85rem;">
+    {{if .Driver.PixKey}}Chave Pix cadastrada: <code>{{.Driver.PixKey}}</code>{{else}}Motorista ainda não cadastrou uma chave Pix — os ganhos das corridas ficam registrados no extrato abaixo, mas não chegam à carteira dela até que cadastre uma.{{end}}
+  </p>
 
   <h4>Dados bancários (repasse Pagar.me)</h4>
   {{if .Driver.PagarmeRecipientID}}
@@ -65,10 +72,12 @@
 <div class="card tabs">
   <input type="radio" name="driver-tab" id="tab-history" class="tab-radio" checked>
   <input type="radio" name="driver-tab" id="tab-ledger" class="tab-radio">
+  <input type="radio" name="driver-tab" id="tab-wallet" class="tab-radio">
 
   <div class="tab-nav">
     <label for="tab-history" class="tab-label">Histórico de corridas</label>
     <label for="tab-ledger" class="tab-label">Extrato de créditos</label>
+    <label for="tab-wallet" class="tab-label">Extrato da carteira</label>
   </div>
 
   <div class="tab-panel" id="panel-history">
@@ -119,6 +128,36 @@
             {{else}}<span class="amount-out">− R$ {{printf "%.2f" (mulf64 .Amount -1.0)}}</span>{{end}}
           </td>
           <td>R$ {{printf "%.2f" .BalanceAfter}}</td>
+          <td>{{.Note}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+
+  <div class="tab-panel" id="panel-wallet">
+    <p style="color:var(--muted); font-size:0.85rem; margin-top:0;">
+      Ganhos líquidos de cada corrida concluída (<code>ride_earning</code>) e saques via Pix (<code>withdrawal</code>) — saldo em si sempre consultado ao vivo na Woovi, acima.
+    </p>
+    {{if not .WalletTransactions}}
+      <p class="empty" style="padding:0.5rem 0;">Nenhuma movimentação ainda.</p>
+    {{else}}
+    <table>
+      <thead><tr><th>Data</th><th>Tipo</th><th>Valor</th><th>Nota</th></tr></thead>
+      <tbody>
+        {{range .WalletTransactions}}
+        <tr>
+          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>
+            {{if eq .Type "ride_earning"}}Ganho de corrida{{end}}
+            {{if eq .Type "withdrawal"}}Saque{{end}}
+            {{if eq .Type "withdrawal_fee"}}Taxa de saque{{end}}
+          </td>
+          <td>
+            {{if .ProviderTransactionID}}<span class="amount-in">R$ {{printf "%.2f" .Amount}}</span>
+            {{else}}<span class="pill pill-pending">R$ {{printf "%.2f" .Amount}} (não creditado)</span>{{end}}
+          </td>
           <td>{{.Note}}</td>
         </tr>
         {{end}}

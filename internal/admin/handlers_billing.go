@@ -13,11 +13,6 @@ import (
 func (m *Module) Billing(c echo.Context) error {
 	ctx := c.Request().Context()
 
-	settings, err := m.billing.GetSettings(ctx)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-
 	drivers, err := m.drivers.ListAll(ctx)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -33,6 +28,11 @@ func (m *Module) Billing(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	wooviSettings, err := m.woovi.Get(ctx)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
 	var wallet *pagarme.Balance
 	var walletError string
 	if paymentSettings.SecretKey != "" && paymentSettings.PlatformRecipientID != "" {
@@ -43,24 +43,13 @@ func (m *Module) Billing(c echo.Context) error {
 	}
 
 	return render(c, "billing", "billing.html", map[string]any{
-		"CommissionPercent": settings.CommissionRate * 100,
-		"Drivers":           drivers,
-		"Payment":           paymentSettings,
-		"Wallet":            wallet,
-		"WalletError":       walletError,
-		"GatewayFeeRates":   gatewayFeeRates,
+		"Drivers":         drivers,
+		"Payment":         paymentSettings,
+		"Woovi":           wooviSettings,
+		"Wallet":          wallet,
+		"WalletError":     walletError,
+		"GatewayFeeRates": gatewayFeeRates,
 	})
-}
-
-func (m *Module) UpdateCommission(c echo.Context) error {
-	percent, err := strconv.ParseFloat(c.FormValue("commissionPercent"), 64)
-	if err != nil || percent < 0 || percent > 100 {
-		return c.Redirect(http.StatusSeeOther, "/admin/billing")
-	}
-	if err := m.billing.SetCommissionRate(c.Request().Context(), percent/100); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.Redirect(http.StatusSeeOther, "/admin/billing")
 }
 
 func (m *Module) AdjustDriverCredit(c echo.Context) error {
@@ -97,6 +86,40 @@ func (m *Module) UpdateGatewaySettings(c echo.Context) error {
 	}
 
 	if err := m.payments.Update(c.Request().Context(), environment, publicKey, secretKey, platformRecipientID); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.Redirect(http.StatusSeeOther, "/admin/billing")
+}
+
+// UpdateWooviSettings saves the Woovi (PIX) gateway credentials. Like
+// UpdateGatewaySettings above, appId and webhookSecret are masked in the
+// form (blank-to-keep) rather than echoed back in full.
+func (m *Module) UpdateWooviSettings(c echo.Context) error {
+	ctx := c.Request().Context()
+	environment := c.FormValue("environment")
+	if environment != "sandbox" && environment != "production" {
+		environment = "sandbox"
+	}
+	appID := c.FormValue("appId")
+	webhookSecret := c.FormValue("webhookSecret")
+	webhookPublicKeyB64 := c.FormValue("webhookPublicKeyB64")
+	platformPixKey := c.FormValue("platformPixKey")
+
+	current, err := m.woovi.Get(ctx)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if appID == "" {
+		appID = current.AppID
+	}
+	if webhookSecret == "" {
+		webhookSecret = current.WebhookSecret
+	}
+	if webhookPublicKeyB64 == "" {
+		webhookPublicKeyB64 = current.WebhookPublicKeyB64
+	}
+
+	if err := m.woovi.Update(ctx, environment, appID, webhookSecret, webhookPublicKeyB64, platformPixKey); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 	return c.Redirect(http.StatusSeeOther, "/admin/billing")

@@ -2,6 +2,46 @@
 <p class="subtitle">Ajustes gerais da plataforma que afetam os apps da passageira e da motorista.</p>
 
 <div class="card">
+  <h3 style="margin-top:0;">Comissão por corrida</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    A taxa é <strong>somada</strong> ao preço da corrida — a passageira paga o valor da motorista + a taxa da plataforma.
+    A motorista sempre recebe o valor cheio da corrida: a taxa é debitada dos créditos dela (modo pré-pago).
+  </p>
+  <form method="post" action="/admin/settings/commission" class="form-row" style="align-items:flex-end;">
+    <div class="field" style="max-width:160px;">
+      <label for="commissionPercent">Percentual padrão (%)</label>
+      <input id="commissionPercent" name="commissionPercent" type="number" step="0.1" min="0" max="100" value="{{printf "%.1f" .CommissionPercent}}">
+    </div>
+    <button class="btn btn-primary" type="submit" style="margin-bottom:0.9rem;">Salvar</button>
+  </form>
+
+  <h4>Comissão por cidade</h4>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    Deixe em branco para usar o percentual padrão acima.
+  </p>
+  {{if not .Cities}}
+    <p class="empty">Nenhuma cidade cadastrada.</p>
+  {{else}}
+  <table>
+    <thead><tr><th>Cidade</th><th style="width:200px;">Percentual (%)</th><th style="width:100px;"></th></tr></thead>
+    <tbody>
+      {{range .Cities}}
+      <tr>
+        <td>{{.Name}}/{{.UF}}</td>
+        <td colspan="2">
+          <form class="inline" method="post" action="/admin/settings/cities/{{.ID}}/commission" style="display:flex; gap:0.4rem;">
+            <input type="number" name="commissionPercent" step="0.1" min="0" max="100" placeholder="padrão"{{if .CommissionRate}} value="{{printf "%.1f" (mulf64 (derefF64 .CommissionRate) 100.0)}}"{{end}} style="width:110px;">
+            <button class="btn btn-ghost btn-sm" type="submit">Salvar</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>
+
+<div class="card">
   <h3 style="margin-top:0;">Mapa em tempo real</h3>
   <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
     Com que frequência os apps da passageira e da motorista atualizam a própria posição e os marcadores de motoristas por perto no mapa.

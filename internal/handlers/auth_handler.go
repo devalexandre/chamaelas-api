@@ -11,14 +11,17 @@ import (
 
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
+	"chamaelas-api/internal/woovi"
 )
 
 type AuthHandler struct {
-	users *repository.UserRepository
+	users         *repository.UserRepository
+	userCredit    *repository.UserCreditRepository
+	wooviSettings *repository.WooviSettingsRepository
 }
 
-func NewAuthHandler(users *repository.UserRepository) *AuthHandler {
-	return &AuthHandler{users: users}
+func NewAuthHandler(users *repository.UserRepository, userCredit *repository.UserCreditRepository, wooviSettings *repository.WooviSettingsRepository) *AuthHandler {
+	return &AuthHandler{users: users, userCredit: userCredit, wooviSettings: wooviSettings}
 }
 
 type signupRequest struct {
@@ -95,4 +98,72 @@ func (h *AuthHandler) Login(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, user)
+}
+
+type createUserCreditTopupRequest struct {
+	AmountCents int `json:"amountCents"`
+}
+
+// CreateCreditTopup creates a plain (no-split) Pix charge to top up a
+// passenger's spend-only prepaid credit — mirrors the driver's
+// CreateCreditTopup, just with a "passenger-topup-" correlationID prefix so
+// the webhook knows which ledger to credit. Actually spending this credit
+// on a ride's price is a separate, later piece of work — this is top-up
+// plumbing only.
+func (h *AuthHandler) CreateCreditTopup(c echo.Context) error {
+	var req createUserCreditTopupRequest
+	if err := c.Bind(&req); err != nil || req.AmountCents <= 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "amountCents must be positive")
+	}
+
+	ctx := c.Request().Context()
+	userID := c.Param("userId")
+	user, err := h.users.FindByID(ctx, userID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	if settings.AppID == "" {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "gateway de pagamento não configurado")
+	}
+
+	correlationID := "passenger-topup-" + uuid.NewString()
+	charge, err := woovi.CreateCharge(settings.AppID, woovi.BaseURL(settings.Environment), woovi.ChargeInput{
+		CorrelationID: correlationID,
+		Cents:         req.AmountCents,
+		Comment:       "Recarga de crédito - Chama Elas",
+		CustomerName:  user.Name,
+		CustomerEmail: user.Email,
+		CustomerPhone: user.Phone,
+	})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+	}
+	if err := h.userCredit.CreateTopup(ctx, correlationID, userID, req.AmountCents); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	return c.JSON(http.StatusCreated, creditTopupResponse{
+		CorrelationID: correlationID,
+		BRCode:        charge.BRCode,
+		QRCodeImage:   charge.QRCodeImage,
+		ExpiresAt:     charge.ExpiresAt,
+	})
+}
+
+// ListCreditTransactions returns a passenger's credit ledger — top-ups and
+// (once ride-payment-by-credit exists) debits — for her extrato.
+func (h *AuthHandler) ListCreditTransactions(c echo.Context) error {
+	transactions, err := h.userCredit.ListTransactions(c.Request().Context(), c.Param("userId"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, transactions)
 }
