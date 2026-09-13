@@ -28,12 +28,12 @@
 {{end}}
 
 <div class="card">
-  <h3 style="margin-top:0;">Nossa carteira (Woovi)</h3>
+  <h3 style="margin-top:0;">Subconta de taxas (Woovi)</h3>
   {{if .HasPlatformBalance}}
     <div class="value" style="font-size:1.6rem; font-weight:800; color: var(--pink-700);">R$ {{printf "%.2f" .PlatformBalance}}</div>
-    <p style="color:var(--muted); font-size:0.85rem; margin-bottom:0;">Taxas de saque cobradas das motoristas ficam aqui.</p>
+    <p style="color:var(--muted); font-size:0.85rem; margin-bottom:0;">Taxas de saque cobradas das motoristas ficam aqui — não é o saldo geral da empresa na Woovi.</p>
   {{else}}
-    <p class="empty">Configure a chave Pix da plataforma em <a href="/admin/billing">Financeiro</a> para ver o saldo.</p>
+    <p class="empty">Configure a chave Pix da subconta de taxas em <a href="/admin/billing">Financeiro</a> para ver o saldo.</p>
   {{end}}
 </div>
 

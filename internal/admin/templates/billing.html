@@ -79,8 +79,11 @@
         <input id="webhookSecret" name="webhookSecret" type="password" placeholder="{{if .Woovi.WebhookSecret}}•••••••• (deixe em branco para manter){{else}}o mesmo valor cadastrado no cabeçalho Authorization no painel da Woovi{{end}}">
       </div>
       <div class="field">
-        <label for="platformPixKey">Chave Pix da plataforma</label>
+        <label for="platformPixKey">Chave Pix da subconta de taxas</label>
         <input id="platformPixKey" name="platformPixKey" value="{{.Woovi.PlatformPixKey}}" placeholder="usada para repassar ganhos e cobrar a taxa de saque">
+        <p style="color:var(--muted); font-size:0.8rem; margin:0.3rem 0 0;">
+          Não é a conta principal da Woovi — é uma subconta operacional só para essas duas transferências internas. Cadastrada aqui, ela é registrada automaticamente como subconta ao salvar.
+        </p>
       </div>
     </div>
     <button class="btn btn-primary" type="submit">Salvar credenciais</button>
@@ -112,12 +115,12 @@
 </div>
 
 <div class="card">
-  <h3 style="margin-top:0;">Nossa carteira — Woovi (Pix)</h3>
+  <h3 style="margin-top:0;">Subconta de taxas — Woovi (Pix)</h3>
   <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
-    Saldo da chave Pix da plataforma — recebe as taxas de saque cobradas das motoristas.
+    Não é o saldo geral da empresa na Woovi (isso fica só no painel deles) — é só a subconta operacional que recebe a taxa de saque cobrada das motoristas e financia a carteira de ganhos delas. Normalmente fica perto de zero.
   </p>
   {{if not .Woovi.PlatformPixKey}}
-    <p class="empty">Configure a chave Pix da plataforma acima para consultar o saldo.</p>
+    <p class="empty">Configure a chave Pix da subconta de taxas acima para consultar o saldo.</p>
   {{else if .WooviWalletError}}
     <p class="error-text" style="color:var(--danger);">Não foi possível consultar o saldo: {{.WooviWalletError}}</p>
   {{else if .HasWooviBalance}}

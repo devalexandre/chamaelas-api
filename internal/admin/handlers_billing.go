@@ -138,6 +138,21 @@ func (m *Module) UpdateWooviSettings(c echo.Context) error {
 		webhookPublicKeyB64 = current.WebhookPublicKeyB64
 	}
 
+	// A Pix key alone isn't a Woovi subaccount — RecipientBalanceCents (and
+	// any transfer to/from it) 404s with "Subconta não encontrada" until
+	// EnsureRecipient actually registers it. Do that here, the same way a
+	// driver's/passenger's key gets registered on login, so the platform's
+	// own wallet balance works right after saving instead of needing a
+	// separate manual step. Idempotent — safe to call again if it's already
+	// registered, or if the key didn't change.
+	if platformPixKey != "" && appID != "" {
+		canonical, err := woovi.EnsureRecipient(appID, woovi.BaseURL(environment), platformPixKey, "Chama Elas - Plataforma")
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, "não foi possível registrar a subconta da plataforma na Woovi: "+err.Error())
+		}
+		platformPixKey = canonical
+	}
+
 	if err := m.woovi.Update(ctx, environment, appID, webhookSecret, webhookPublicKeyB64, platformPixKey); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
