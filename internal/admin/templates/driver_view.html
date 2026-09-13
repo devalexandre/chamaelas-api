@@ -3,7 +3,7 @@
   {{if eq .Driver.Status "pending"}}<span class="pill pill-pending">Pendente</span>{{end}}
   {{if eq .Driver.Status "approved"}}<span class="pill pill-approved">Aprovada</span>{{end}}
   {{if eq .Driver.Status "blocked"}}<span class="pill pill-blocked">Bloqueada</span>{{end}}
-  {{if .Driver.IsOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}
+  {{if .Driver.IsReallyOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}
 </p>
 
 <div style="display:flex; gap:0.6rem; margin-bottom:1rem;">

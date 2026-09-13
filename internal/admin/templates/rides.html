@@ -1,38 +1,105 @@
 <h1>Corridas</h1>
-<p class="subtitle">As 100 corridas mais recentes, com o estado atual do pareamento — útil pra ver se uma corrida "presa em buscando" está de fato ofertada a alguém.</p>
+<p class="subtitle">As 100 corridas mais recentes, com o estado atual do pareamento — útil pra ver se uma corrida "presa em buscando" está de fato ofertada a alguém. Atualiza sozinha, não precisa recarregar.</p>
 
 <div class="card">
-  {{if not .Rides}}
-    <p class="empty">Nenhuma corrida ainda.</p>
-  {{else}}
   <table>
     <thead>
       <tr><th>Quando</th><th>Passageira</th><th>Categoria</th><th>Status</th><th>Motorista</th><th>Km</th><th>Preço</th></tr>
     </thead>
-    <tbody>
-      {{range .Rides}}
-      <tr>
-        <td>{{.CreatedAt.Format "02/01 15:04"}}</td>
-        <td>{{.CustomerName}}</td>
-        <td>{{.CategoryID}}</td>
-        <td>
-          {{if eq .Status "searching"}}
-            <span class="pill pill-pending">Buscando</span>
-            {{if gt .DeclineCount 0}}<div class="hint-text" style="font-size:0.72rem; color:var(--muted); margin-top:2px;">recusada por {{.DeclineCount}} motorista{{if gt .DeclineCount 1}}s{{end}}</div>{{end}}
-          {{else if eq .Status "accepted"}}<span class="pill pill-active">Aceita</span>
-          {{else if eq .Status "arrived"}}<span class="pill pill-active">Motorista chegou</span>
-          {{else if eq .Status "in_progress"}}<span class="pill pill-active">Em andamento</span>
-          {{else if eq .Status "completed"}}<span class="pill pill-approved">Concluída</span>
-          {{else if eq .Status "cancelled"}}<span class="pill pill-inactive">Cancelada</span>
-          {{else}}<span class="pill pill-inactive">{{.Status}}</span>
-          {{end}}
-        </td>
-        <td>{{if .DriverName}}{{.DriverName}}{{else}}—{{end}}</td>
-        <td>{{printf "%.1f" .DistanceKm}}</td>
-        <td>R$ {{printf "%.2f" .Price}}</td>
-      </tr>
-      {{end}}
-    </tbody>
+    <tbody id="rides-tbody"></tbody>
   </table>
-  {{end}}
+  <p class="empty" id="rides-empty" hidden>Nenhuma corrida ainda.</p>
 </div>
+
+<script>
+  (function () {
+    var POLL_MS = 5000;
+    var tbody = document.getElementById('rides-tbody');
+    var emptyMsg = document.getElementById('rides-empty');
+
+    function pill(text, className) {
+      var span = document.createElement('span');
+      span.className = 'pill ' + className;
+      span.textContent = text;
+      return span;
+    }
+
+    function statusCell(ride) {
+      var td = document.createElement('td');
+      switch (ride.status) {
+        case 'searching':
+          td.appendChild(pill('Buscando', 'pill-pending'));
+          if (ride.declineCount > 0) {
+            var hint = document.createElement('div');
+            hint.style.cssText = 'font-size:0.72rem; color:var(--muted); margin-top:2px;';
+            hint.textContent = 'recusada por ' + ride.declineCount + ' motorista' + (ride.declineCount > 1 ? 's' : '');
+            td.appendChild(hint);
+          }
+          break;
+        case 'accepted': td.appendChild(pill('Aceita', 'pill-active')); break;
+        case 'arrived': td.appendChild(pill('Motorista chegou', 'pill-active')); break;
+        case 'in_progress': td.appendChild(pill('Em andamento', 'pill-active')); break;
+        case 'completed': td.appendChild(pill('Concluída', 'pill-approved')); break;
+        case 'cancelled': td.appendChild(pill('Cancelada', 'pill-inactive')); break;
+        default: td.appendChild(pill(ride.status, 'pill-inactive'));
+      }
+      return td;
+    }
+
+    function formatWhen(iso) {
+      var d = new Date(iso);
+      var pad = function (n) { return String(n).padStart(2, '0'); };
+      return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function buildRow(ride) {
+      var tr = document.createElement('tr');
+
+      var when = document.createElement('td');
+      when.textContent = formatWhen(ride.createdAt);
+      tr.appendChild(when);
+
+      var customer = document.createElement('td');
+      customer.textContent = ride.customerName;
+      tr.appendChild(customer);
+
+      var category = document.createElement('td');
+      category.textContent = ride.categoryId;
+      tr.appendChild(category);
+
+      tr.appendChild(statusCell(ride));
+
+      var driver = document.createElement('td');
+      driver.textContent = ride.driverName || '—';
+      tr.appendChild(driver);
+
+      var km = document.createElement('td');
+      km.textContent = ride.distanceKm.toFixed(1);
+      tr.appendChild(km);
+
+      var price = document.createElement('td');
+      price.textContent = 'R$ ' + ride.price.toFixed(2);
+      tr.appendChild(price);
+
+      return tr;
+    }
+
+    function render(rides) {
+      tbody.innerHTML = '';
+      rides.forEach(function (ride) { tbody.appendChild(buildRow(ride)); });
+      emptyMsg.hidden = rides.length > 0;
+    }
+
+    function refresh() {
+      fetch('/admin/rides/data')
+        .then(function (res) { return res.ok ? res.json() : []; })
+        .then(render)
+        .catch(function () {
+          // transient network hiccup — the next tick tries again
+        });
+    }
+
+    refresh();
+    setInterval(refresh, POLL_MS);
+  })();
+</script>

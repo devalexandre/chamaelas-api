@@ -17,3 +17,13 @@ func (m *Module) ListRides(c echo.Context) error {
 	}
 	return render(c, "rides", "rides.html", map[string]any{"Rides": rides})
 }
+
+// ListRidesData is polled by the Corridas page (every few seconds) so it
+// stays live without a manual reload.
+func (m *Module) ListRidesData(c echo.Context) error {
+	rides, err := m.rides.ListRecentLog(c.Request().Context(), 100)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, rides)
+}

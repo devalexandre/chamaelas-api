@@ -36,6 +36,26 @@ func (m *Module) ListDrivers(c echo.Context) error {
 	})
 }
 
+// driverOnlineStatus is the minimal shape the Motoristas list polls (every
+// few seconds) to keep the Online/Offline pill live without a full reload
+// or re-fetching every other column.
+type driverOnlineStatus struct {
+	ID       string `json:"id"`
+	IsOnline bool   `json:"isOnline"`
+}
+
+func (m *Module) DriverOnlineStatuses(c echo.Context) error {
+	drivers, err := m.drivers.ListAll(c.Request().Context())
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	statuses := make([]driverOnlineStatus, len(drivers))
+	for i, d := range drivers {
+		statuses[i] = driverOnlineStatus{ID: d.ID, IsOnline: d.IsReallyOnline()}
+	}
+	return c.JSON(http.StatusOK, statuses)
+}
+
 func (m *Module) ViewDriver(c echo.Context) error {
 	ctx := c.Request().Context()
 

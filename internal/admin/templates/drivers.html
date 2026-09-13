@@ -27,7 +27,7 @@
           {{if eq .Status "approved"}}<span class="pill pill-approved">Aprovada</span>{{end}}
           {{if eq .Status "blocked"}}<span class="pill pill-blocked">Bloqueada</span>{{end}}
         </td>
-        <td>{{if .IsOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}</td>
+        <td data-online-cell="{{.ID}}">{{if .IsReallyOnline}}<span class="pill pill-active">Online</span>{{else}}<span class="pill pill-inactive">Offline</span>{{end}}</td>
         <td>{{if eq .BillingMode "prepaid"}}Pré-pago (R$ {{printf "%.2f" .CreditBalance}}){{else}}Por corrida{{end}}</td>
         <td style="white-space:nowrap;">
           <a class="btn btn-ghost btn-sm" href="/admin/drivers/{{.ID}}">Visualizar</a>
@@ -49,3 +49,28 @@
   </table>
   {{end}}
 </div>
+
+<script>
+  (function () {
+    var POLL_MS = 5000;
+    function refresh() {
+      fetch('/admin/drivers/online-status')
+        .then(function (res) { return res.ok ? res.json() : []; })
+        .then(function (statuses) {
+          statuses.forEach(function (s) {
+            var cell = document.querySelector('[data-online-cell="' + s.id + '"]');
+            if (!cell) return;
+            cell.innerHTML = '';
+            var span = document.createElement('span');
+            span.className = 'pill ' + (s.isOnline ? 'pill-active' : 'pill-inactive');
+            span.textContent = s.isOnline ? 'Online' : 'Offline';
+            cell.appendChild(span);
+          });
+        })
+        .catch(function () {
+          // transient network hiccup — the next tick tries again
+        });
+    }
+    setInterval(refresh, POLL_MS);
+  })();
+</script>
