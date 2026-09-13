@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -8,6 +9,7 @@ import (
 
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/pagarme"
+	"chamaelas-api/internal/woovi"
 )
 
 func (m *Module) Billing(c echo.Context) error {
@@ -42,13 +44,28 @@ func (m *Module) Billing(c echo.Context) error {
 		}
 	}
 
+	var wooviBalance float64
+	var wooviWalletError string
+	hasWooviBalance := false
+	if wooviSettings.AppID != "" && wooviSettings.PlatformPixKey != "" {
+		if cents, err := woovi.RecipientBalanceCents(wooviSettings.AppID, woovi.BaseURL(wooviSettings.Environment), wooviSettings.PlatformPixKey); err != nil {
+			wooviWalletError = err.Error()
+		} else {
+			hasWooviBalance = true
+			wooviBalance = float64(cents) / 100
+		}
+	}
+
 	return render(c, "billing", "billing.html", map[string]any{
-		"Drivers":         drivers,
-		"Payment":         paymentSettings,
-		"Woovi":           wooviSettings,
-		"Wallet":          wallet,
-		"WalletError":     walletError,
-		"GatewayFeeRates": gatewayFeeRates,
+		"Drivers":          drivers,
+		"Payment":          paymentSettings,
+		"Woovi":            wooviSettings,
+		"HasWooviBalance":  hasWooviBalance,
+		"WooviBalance":     wooviBalance,
+		"WooviWalletError": wooviWalletError,
+		"Wallet":           wallet,
+		"WalletError":      walletError,
+		"GatewayFeeRates":  gatewayFeeRates,
 	})
 }
 
@@ -59,11 +76,13 @@ func (m *Module) AdjustDriverCredit(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/admin/billing")
 	}
 
+	note := "Ajuste manual pelo admin"
 	if _, err := m.billing.AdjustCredit(
-		c.Request().Context(), driverID, amount, models.CreditTransactionAdjustment, nil, "Ajuste manual pelo admin",
+		c.Request().Context(), driverID, amount, models.CreditTransactionAdjustment, nil, note,
 	); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	m.recordAudit(c, "adjust_driver_credit", "driver", driverID, fmt.Sprintf("%s: R$ %.2f", note, amount))
 	return c.Redirect(http.StatusSeeOther, "/admin/billing")
 }
 

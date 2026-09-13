@@ -27,6 +27,54 @@
 </div>
 {{end}}
 
+<div class="card">
+  <h3 style="margin-top:0;">Nossa carteira (Woovi)</h3>
+  {{if .HasPlatformBalance}}
+    <div class="value" style="font-size:1.6rem; font-weight:800; color: var(--pink-700);">R$ {{printf "%.2f" .PlatformBalance}}</div>
+    <p style="color:var(--muted); font-size:0.85rem; margin-bottom:0;">Taxas de saque cobradas das motoristas ficam aqui.</p>
+  {{else}}
+    <p class="empty">Configure a chave Pix da plataforma em <a href="/admin/billing">Financeiro</a> para ver o saldo.</p>
+  {{end}}
+</div>
+
+<h3 style="margin: 1.5rem 0 0.7rem;">Corridas e ganhos</h3>
+<div class="stat-row">
+  <div class="stat-tile">
+    <div class="value">{{.StatsToday.TotalRides}}</div>
+    <div class="label">Corridas hoje</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.StatsToday.CompletedRides}}</div>
+    <div class="label">Concluídas hoje</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.StatsToday.CancelledRides}}</div>
+    <div class="label">Canceladas hoje</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">R$ {{printf "%.2f" .StatsToday.TotalPlatformFee}}</div>
+    <div class="label">Comissão hoje</div>
+  </div>
+</div>
+<div class="stat-row">
+  <div class="stat-tile">
+    <div class="value">{{.StatsTotal.TotalRides}}</div>
+    <div class="label">Corridas (total)</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.StatsTotal.CompletedRides}}</div>
+    <div class="label">Concluídas (total)</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">{{.StatsTotal.CancelledRides}}</div>
+    <div class="label">Canceladas (total)</div>
+  </div>
+  <div class="stat-tile">
+    <div class="value">R$ {{printf "%.2f" .StatsTotal.TotalPlatformFee}}</div>
+    <div class="label">Comissão (total)</div>
+  </div>
+</div>
+
 <h3 style="margin: 1.5rem 0 0.7rem;">Motoristas online agora</h3>
 <div class="card" style="padding: 0; overflow: hidden;">
   <div id="dashboard-map" style="height: 420px; background: var(--pink-50); position: relative;"></div>

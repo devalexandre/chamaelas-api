@@ -73,11 +73,13 @@
   <input type="radio" name="driver-tab" id="tab-history" class="tab-radio" checked>
   <input type="radio" name="driver-tab" id="tab-ledger" class="tab-radio">
   <input type="radio" name="driver-tab" id="tab-wallet" class="tab-radio">
+  <input type="radio" name="driver-tab" id="tab-audit" class="tab-radio">
 
   <div class="tab-nav">
     <label for="tab-history" class="tab-label">Histórico de corridas</label>
     <label for="tab-ledger" class="tab-label">Extrato de créditos</label>
     <label for="tab-wallet" class="tab-label">Extrato da carteira</label>
+    <label for="tab-audit" class="tab-label">Auditoria</label>
   </div>
 
   <div class="tab-panel" id="panel-history">
@@ -159,6 +161,55 @@
             {{else}}<span class="pill pill-pending">R$ {{printf "%.2f" .Amount}} (não creditado)</span>{{end}}
           </td>
           <td>{{.Note}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+  </div>
+
+  <div class="tab-panel" id="panel-audit">
+    <h4 style="margin-top:0;">Ações do admin</h4>
+    {{if not .AuditEntries}}
+      <p class="empty" style="padding:0.5rem 0;">Nenhuma ação registrada ainda.</p>
+    {{else}}
+    <table>
+      <thead><tr><th>Data</th><th>Admin</th><th>Ação</th><th>Detalhes</th></tr></thead>
+      <tbody>
+        {{range .AuditEntries}}
+        <tr>
+          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{.AdminName}}</td>
+          <td>
+            {{if eq .Action "adjust_driver_credit"}}Ajuste de crédito{{end}}
+            {{if eq .Action "set_driver_billing_mode"}}Troca de modalidade{{end}}
+            {{if eq .Action "approve_pix_key_change"}}Aprovou troca de chave Pix{{end}}
+            {{if eq .Action "reject_pix_key_change"}}Rejeitou troca de chave Pix{{end}}
+          </td>
+          <td>{{.Details}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{end}}
+
+    <h4>Solicitações de troca de chave Pix</h4>
+    {{if not .PixKeyRequests}}
+      <p class="empty" style="padding:0.5rem 0;">Nenhuma solicitação ainda.</p>
+    {{else}}
+    <table>
+      <thead><tr><th>Pedido em</th><th>De</th><th>Para</th><th>Status</th></tr></thead>
+      <tbody>
+        {{range .PixKeyRequests}}
+        <tr>
+          <td>{{.RequestedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{if .OldPixKey}}<code>{{.OldPixKey}}</code>{{else}}—{{end}}</td>
+          <td><code>{{.NewPixKey}}</code></td>
+          <td>
+            {{if eq .Status "pending"}}<span class="pill pill-pending">Pendente</span>{{end}}
+            {{if eq .Status "approved"}}<span class="pill pill-approved">Aprovada</span>{{end}}
+            {{if eq .Status "rejected"}}<span class="pill pill-blocked">Rejeitada</span>{{end}}
+          </td>
         </tr>
         {{end}}
       </tbody>

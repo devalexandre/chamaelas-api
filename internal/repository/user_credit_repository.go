@@ -26,6 +26,12 @@ func NewUserCreditRepository(db ksql.DB, cfg config.Config) *UserCreditRepositor
 	return &UserCreditRepository{db: db, cfg: cfg}
 }
 
+func (r *UserCreditRepository) SetPixKey(ctx context.Context, userID, pixKey string) error {
+	query := fmt.Sprintf("UPDATE users SET pix_key = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, pixKey, userID)
+	return err
+}
+
 var userCreditTransactionsTable = ksql.NewTable("user_credit_transactions", "id")
 
 // AdjustUserCredit applies a signed amount to a passenger's prepaid balance

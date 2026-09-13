@@ -88,7 +88,7 @@
 </div>
 
 <div class="card">
-  <h3 style="margin-top:0;">Nossa carteira</h3>
+  <h3 style="margin-top:0;">Nossa carteira — Pagar.me</h3>
   {{if not .Payment.PlatformRecipientID}}
     <p class="empty">Configure o Recipient ID acima para consultar o saldo da plataforma na Pagar.me.</p>
   {{else if .WalletError}}
@@ -112,12 +112,26 @@
 </div>
 
 <div class="card">
+  <h3 style="margin-top:0;">Nossa carteira — Woovi (Pix)</h3>
+  <p style="color:var(--muted); font-size:0.88rem; margin-top:-0.5rem;">
+    Saldo da chave Pix da plataforma — recebe as taxas de saque cobradas das motoristas.
+  </p>
+  {{if not .Woovi.PlatformPixKey}}
+    <p class="empty">Configure a chave Pix da plataforma acima para consultar o saldo.</p>
+  {{else if .WooviWalletError}}
+    <p class="error-text" style="color:var(--danger);">Não foi possível consultar o saldo: {{.WooviWalletError}}</p>
+  {{else if .HasWooviBalance}}
+    <div class="value" style="font-size:1.6rem; font-weight:800; color: var(--pink-700);">R$ {{printf "%.2f" .WooviBalance}}</div>
+  {{end}}
+</div>
+
+<div class="card">
   <h3 style="margin-top:0;">Motoristas — modalidade e saldo</h3>
   {{if not .Drivers}}
     <p class="empty">Nenhuma motorista cadastrada.</p>
   {{else}}
   <table>
-    <thead><tr><th>Nome</th><th>Modalidade</th><th>Saldo</th><th>Ajustar crédito</th></tr></thead>
+    <thead><tr><th>Nome</th><th>Modalidade</th><th>Saldo</th><th>Ajustar crédito</th><th></th></tr></thead>
     <tbody>
       {{range .Drivers}}
       <tr>
@@ -130,6 +144,7 @@
             <button class="btn btn-ghost btn-sm" type="submit">Aplicar</button>
           </form>
         </td>
+        <td><a class="btn btn-ghost btn-sm" href="/admin/drivers/{{.ID}}">Ver carteira</a></td>
       </tr>
       {{end}}
     </tbody>

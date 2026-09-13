@@ -24,6 +24,12 @@ type Config struct {
 	// Bootstrap admin account, created on startup if the admins table is empty.
 	AdminBootstrapEmail    string
 	AdminBootstrapPassword string
+
+	// GoogleClientID is the OAuth "web" client ID used both as the
+	// serverClientId the Android apps request an ID token for, and as the
+	// audience chamaelas-api verifies that token against — empty disables
+	// Google sign-in entirely.
+	GoogleClientID string
 }
 
 func Load() Config {
@@ -34,6 +40,7 @@ func Load() Config {
 		AdminSessionSecret:     getEnv("ADMIN_SESSION_SECRET", "dev-only-insecure-secret-change-me"),
 		AdminBootstrapEmail:    getEnv("ADMIN_EMAIL", "admin@chamaelas.com"),
 		AdminBootstrapPassword: getEnv("ADMIN_PASSWORD", "chamaelas123"),
+		GoogleClientID:         getEnv("GOOGLE_CLIENT_ID", ""),
 	}
 }
 

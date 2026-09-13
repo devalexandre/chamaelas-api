@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"time"
 
 	"chamaelas-api/internal/models"
+	"chamaelas-api/internal/repository"
+	"chamaelas-api/internal/woovi"
 
 	"github.com/labstack/echo/v4"
 )
@@ -65,12 +68,38 @@ func (m *Module) Dashboard(c echo.Context) error {
 		markersJSON = []byte("[]")
 	}
 
+	today := time.Now().UTC().Format("2006-01-02")
+	statsToday, err := m.rides.Stats(ctx, repository.DateRange{From: today, To: today})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	statsTotal, err := m.rides.Stats(ctx, repository.DateRange{})
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	// Best-effort: the platform's own Woovi balance shouldn't break the
+	// whole dashboard if the gateway isn't configured yet or is briefly
+	// unreachable.
+	hasPlatformBalance := false
+	platformBalance := 0.0
+	if wooviSettings, err := m.woovi.Get(ctx); err == nil && wooviSettings.AppID != "" && wooviSettings.PlatformPixKey != "" {
+		if cents, err := woovi.RecipientBalanceCents(wooviSettings.AppID, woovi.BaseURL(wooviSettings.Environment), wooviSettings.PlatformPixKey); err == nil {
+			hasPlatformBalance = true
+			platformBalance = float64(cents) / 100
+		}
+	}
+
 	return render(c, "dashboard", "dashboard.html", map[string]any{
-		"DriverCount":   driverCount,
-		"UserCount":     len(users),
-		"PendingCount":  pendingCount,
-		"OnlineCount":   len(markers),
-		"DriverMarkers": template.JS(markersJSON),
+		"DriverCount":        driverCount,
+		"UserCount":          len(users),
+		"PendingCount":       pendingCount,
+		"OnlineCount":        len(markers),
+		"DriverMarkers":      template.JS(markersJSON),
+		"StatsToday":         statsToday,
+		"StatsTotal":         statsTotal,
+		"HasPlatformBalance": hasPlatformBalance,
+		"PlatformBalance":    platformBalance,
 	})
 }
 

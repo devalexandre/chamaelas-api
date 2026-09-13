@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"embed"
 	"html/template"
+	"log"
 	"net/http"
 
 	"github.com/gorilla/sessions"
@@ -15,6 +16,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"chamaelas-api/internal/config"
+	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
 )
 
@@ -59,11 +61,14 @@ type Module struct {
 	categories    *repository.CategoryRepository
 	cities        *repository.CityRepository
 	billing       *repository.BillingRepository
+	userCredit    *repository.UserCreditRepository
 	pricing       *repository.PricingRepository
 	payments      *repository.PaymentSettingsRepository
 	woovi         *repository.WooviSettingsRepository
 	gatewayFees   *repository.GatewayFeeRateRepository
 	notifications *repository.NotificationRepository
+	pixKeyChanges *repository.PixKeyChangeRepository
+	audit         *repository.AuditRepository
 }
 
 func NewModule(
@@ -75,17 +80,21 @@ func NewModule(
 	categories *repository.CategoryRepository,
 	cities *repository.CityRepository,
 	billing *repository.BillingRepository,
+	userCredit *repository.UserCreditRepository,
 	pricing *repository.PricingRepository,
 	payments *repository.PaymentSettingsRepository,
 	woovi *repository.WooviSettingsRepository,
 	gatewayFees *repository.GatewayFeeRateRepository,
 	notifications *repository.NotificationRepository,
+	pixKeyChanges *repository.PixKeyChangeRepository,
+	audit *repository.AuditRepository,
 ) *Module {
 	return &Module{
 		cfg: cfg, admins: admins, users: users, drivers: drivers,
 		rides: rides, categories: categories, cities: cities, billing: billing,
-		pricing: pricing, payments: payments, woovi: woovi, gatewayFees: gatewayFees,
-		notifications: notifications,
+		userCredit: userCredit, pricing: pricing, payments: payments, woovi: woovi,
+		gatewayFees: gatewayFees, notifications: notifications,
+		pixKeyChanges: pixKeyChanges, audit: audit,
 	}
 }
 
@@ -143,6 +152,44 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.POST("/settings/map-poll", m.UpdateMapPollInterval)
 	g.POST("/settings/commission", m.UpdateCommission)
 	g.POST("/settings/cities/:id/commission", m.UpdateCityCommissionRate)
+	g.GET("/pix-key-requests", m.PixKeyRequestsPage)
+	g.POST("/pix-key-requests/:id/approve", m.ApprovePixKeyRequest)
+	g.POST("/pix-key-requests/:id/reject", m.RejectPixKeyRequest)
+}
+
+// currentAdmin resolves the logged-in admin from the session — nil if
+// something's wrong (shouldn't normally happen behind requireAdmin, but
+// callers must still handle nil rather than assume).
+func (m *Module) currentAdmin(c echo.Context) *models.Admin {
+	sess, err := session.Get(sessionName, c)
+	if err != nil {
+		return nil
+	}
+	id, _ := sess.Values["adminID"].(string)
+	if id == "" {
+		return nil
+	}
+	admin, err := m.admins.FindByID(c.Request().Context(), id)
+	if err != nil {
+		return nil
+	}
+	return admin
+}
+
+// recordAudit logs one money-touching admin action against the current
+// session's admin — every such action should call this so there's a clear,
+// auditable trail of who did what. Logs (doesn't fail the request) if the
+// admin can't be resolved or the write itself fails, since an audit-log
+// hiccup shouldn't block the action it's trying to record.
+func (m *Module) recordAudit(c echo.Context, action, targetType, targetID, details string) {
+	admin := m.currentAdmin(c)
+	if admin == nil {
+		log.Printf("audit: could not resolve current admin for action %s on %s/%s", action, targetType, targetID)
+		return
+	}
+	if err := m.audit.Record(c.Request().Context(), admin.ID, admin.Name, action, targetType, targetID, details); err != nil {
+		log.Printf("audit: failed to record %s on %s/%s: %v", action, targetType, targetID, err)
+	}
 }
 
 // requireAdmin redirects anonymous visitors to the login page. It's the only

@@ -60,3 +60,22 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User,
 	}
 	return &user, nil
 }
+
+func (r *UserRepository) FindByGoogleSub(ctx context.Context, sub string) (*models.User, error) {
+	var user models.User
+	query := fmt.Sprintf("FROM users WHERE google_sub = %s", database.Placeholder(r.cfg, 1))
+	err := r.db.QueryOne(ctx, &user, query, sub)
+	if errors.Is(err, ksql.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) SetGoogleSub(ctx context.Context, id, sub string) error {
+	query := fmt.Sprintf("UPDATE users SET google_sub = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, sub, id)
+	return err
+}

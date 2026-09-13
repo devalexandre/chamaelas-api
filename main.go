@@ -52,16 +52,18 @@ func main() {
 	wooviSettingsRepo := repository.NewWooviSettingsRepository(db, cfg)
 	gatewayFeeRateRepo := repository.NewGatewayFeeRateRepository(db, cfg)
 	notificationRepo := repository.NewNotificationRepository(db, cfg)
+	pixKeyChangeRepo := repository.NewPixKeyChangeRepository(db, cfg)
+	auditRepo := repository.NewAuditRepository(db, cfg)
 
-	authHandler := handlers.NewAuthHandler(userRepo, userCreditRepo, wooviSettingsRepo)
+	authHandler := handlers.NewAuthHandler(userRepo, userCreditRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
 	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo)
-	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo, wooviSettingsRepo)
+	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
 	settingsHandler := handlers.NewSettingsHandler(billingRepo)
 	webhookHandler := handlers.NewWebhookHandler(wooviSettingsRepo, billingRepo, userCreditRepo)
 
-	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo)
+	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, userCreditRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo, pixKeyChangeRepo, auditRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
 		log.Fatalf("failed to bootstrap admin account: %v", err)
 	}
@@ -85,14 +87,19 @@ func main() {
 
 	api.POST("/auth/signup", authHandler.Signup)
 	api.POST("/auth/login", authHandler.Login)
+	api.POST("/auth/google", authHandler.GoogleLogin)
+	api.POST("/users/:userId/link-google", authHandler.LinkGoogleAccount)
 	api.POST("/users/:userId/credit/topup", authHandler.CreateCreditTopup)
 	api.GET("/users/:userId/credit-transactions", authHandler.ListCreditTransactions)
+	api.POST("/users/:userId/pix-key", authHandler.SetPixKey)
 
 	api.GET("/categories", categoryHandler.ListActive)
 	api.GET("/settings", settingsHandler.PublicSettings)
 
 	api.POST("/driver/auth/signup", driverHandler.Signup)
 	api.POST("/driver/auth/login", driverHandler.Login)
+	api.POST("/driver/auth/google", driverHandler.GoogleLogin)
+	api.POST("/driver/:id/link-google", driverHandler.LinkGoogleAccount)
 	api.GET("/drivers/nearby", driverHandler.Nearby)
 	api.GET("/driver/:id", driverHandler.GetProfile)
 	api.POST("/driver/:id/location", driverHandler.SetLocation)

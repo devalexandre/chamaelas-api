@@ -72,6 +72,25 @@ func (r *DriverRepository) FindByID(ctx context.Context, id string) (*models.Dri
 	return &driver, nil
 }
 
+func (r *DriverRepository) FindByGoogleSub(ctx context.Context, sub string) (*models.Driver, error) {
+	var driver models.Driver
+	query := fmt.Sprintf("FROM drivers WHERE google_sub = %s", database.Placeholder(r.cfg, 1))
+	err := r.db.QueryOne(ctx, &driver, query, sub)
+	if errors.Is(err, ksql.ErrRecordNotFound) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &driver, nil
+}
+
+func (r *DriverRepository) SetGoogleSub(ctx context.Context, id, sub string) error {
+	query := fmt.Sprintf("UPDATE drivers SET google_sub = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, sub, id)
+	return err
+}
+
 // SetLocation is called by the driver app while online (periodic GPS ping)
 // and whenever the driver flips the online/offline switch.
 func (r *DriverRepository) SetLocation(ctx context.Context, driverID string, lat, lng float64, isOnline bool) error {

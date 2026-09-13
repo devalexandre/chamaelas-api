@@ -197,6 +197,27 @@ func (r *RideRepository) dateRangeFilter(dateExpr string, dr DateRange, nextPos 
 	return clause, args
 }
 
+// Stats summarizes ride activity within dr (unbounded = all-time) — total
+// rides, how many completed/cancelled, and revenue from the completed ones.
+// Backs the admin dashboard's "hoje" and "total" stat rows.
+func (r *RideRepository) Stats(ctx context.Context, dr DateRange) (models.DashboardStats, error) {
+	var stats models.DashboardStats
+	dateExpr := database.DateOnly(r.cfg, "created_at")
+	where := "1=1"
+	extra, args := r.dateRangeFilter(dateExpr, dr, 1)
+	where += extra
+
+	query := "SELECT " +
+		"COUNT(*) as total_rides, " +
+		"COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) as completed_rides, " +
+		"COALESCE(SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0) as cancelled_rides, " +
+		"COALESCE(SUM(CASE WHEN status = 'completed' THEN driver_earning ELSE 0 END), 0) as total_driver_earnings, " +
+		"COALESCE(SUM(CASE WHEN status = 'completed' THEN platform_fee ELSE 0 END), 0) as total_platform_fee " +
+		"FROM rides WHERE " + where
+	err := r.db.QueryOne(ctx, &stats, query, args...)
+	return stats, err
+}
+
 // ListDetailedByDateRange returns every ride created within the range
 // (either bound optional), one row per ride, with the passenger's and
 // driver's names joined in — this backs the "por data" report, which is a

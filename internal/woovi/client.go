@@ -124,6 +124,12 @@ func RecipientBalanceCents(appID, baseURL, pixKey string) (int, error) {
 
 var nonDigit = regexp.MustCompile(`\D`)
 
+// OnlyDigits strips everything but digits — used to normalize a CPF before
+// using it as a default Pix key for auto-provisioning a subaccount.
+func OnlyDigits(s string) string {
+	return nonDigit.ReplaceAllString(s, "")
+}
+
 // pixKeyType infers a Pix key's type from its format, required by the
 // subaccount-transfer endpoint.
 func pixKeyType(key string) string {

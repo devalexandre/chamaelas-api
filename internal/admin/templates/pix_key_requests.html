@@ -1,0 +1,45 @@
+<h1>Trocas de chave Pix</h1>
+<p class="subtitle">
+  Toda troca de chave Pix — motorista ou passageira — fica pendente aqui até um admin aprovar. Confirme com a pessoa (fora do app, se precisar) antes de aprovar: uma conta comprometida poderia tentar redirecionar o dinheiro pra uma chave que não é dela.
+</p>
+
+<div class="card">
+  {{if not .Requests}}
+    <p class="empty">Nenhuma solicitação pendente.</p>
+  {{else}}
+  <table>
+    <thead>
+      <tr>
+        <th>Quem</th>
+        <th>Tipo</th>
+        <th>Chave atual</th>
+        <th>Chave solicitada</th>
+        <th>Pedido em</th>
+        <th style="width:220px;">Decisão</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Requests}}
+      <tr>
+        <td>{{.OwnerName}}</td>
+        <td>{{if eq .OwnerType "driver"}}Motorista{{else}}Passageira{{end}}</td>
+        <td>{{if .OldPixKey}}<code>{{.OldPixKey}}</code>{{else}}<span class="empty" style="padding:0;">nenhuma</span>{{end}}</td>
+        <td><code>{{.NewPixKey}}</code></td>
+        <td>{{.RequestedAt.Format "02/01/2006 15:04"}}</td>
+        <td>
+          <div style="display:flex; gap:0.4rem;">
+            <form method="post" action="/admin/pix-key-requests/{{.ID}}/approve">
+              <button class="btn btn-primary btn-sm" type="submit">Aprovar</button>
+            </form>
+            <form method="post" action="/admin/pix-key-requests/{{.ID}}/reject" style="display:flex; gap:0.3rem;">
+              <input type="text" name="note" placeholder="Motivo (opcional)" style="width:140px;">
+              <button class="btn btn-danger btn-sm" type="submit">Rejeitar</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

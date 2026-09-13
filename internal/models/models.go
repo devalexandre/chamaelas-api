@@ -26,7 +26,17 @@ type User struct {
 	PhotoURL      string    `ksql:"photo_url" json:"photoUrl,omitempty"`
 	PasswordHash  string    `ksql:"password_hash" json:"-"`
 	CreditBalance float64   `ksql:"credit_balance" json:"creditBalance"`
-	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
+	// PixKey is always the CANONICAL key Woovi returns from EnsureRecipient,
+	// auto-provisioned (from CPF) on first login and changeable any time via
+	// AuthHandler.SetPixKey — same convention as models.Driver.PixKey.
+	PixKey    string    `ksql:"pix_key" json:"pixKey,omitempty"`
+	GoogleSub *string   `ksql:"google_sub" json:"-"`
+	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
+
+	// GoogleLinked is set by the handler after loading the row — never a
+	// column itself — so the client can show "linked" state without ever
+	// seeing the actual Google subject id.
+	GoogleLinked bool `json:"googleLinked"`
 }
 
 type DriverStatus string
@@ -68,6 +78,7 @@ type Driver struct {
 	// never the raw value the driver typed — see internal/woovi. Empty means
 	// she hasn't registered one yet, so her revenue wallet has no subaccount.
 	PixKey    string    `ksql:"pix_key" json:"pixKey,omitempty"`
+	GoogleSub *string   `ksql:"google_sub" json:"-"`
 	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
 
 	// Populated by the repository, never stored as a column directly.
@@ -76,6 +87,9 @@ type Driver struct {
 	// (see RideHandler.attachDriver) — minutes from her current location to
 	// the ride's pickup point. Nil outside that context.
 	EtaMin *int `json:"etaMin,omitempty"`
+	// GoogleLinked is set by the handler after loading the row — see
+	// models.User.GoogleLinked doc.
+	GoogleLinked bool `json:"googleLinked"`
 }
 
 // OnlineStaleness is how long IsOnline=true is trusted without a fresh
@@ -331,6 +345,16 @@ type PaymentSettings struct {
 	PlatformRecipientID string `ksql:"platform_recipient_id" json:"platformRecipientId"`
 }
 
+// DashboardStats is a simple summary of ride activity over a date range
+// (or all-time when the range is unbounded) for the admin home page.
+type DashboardStats struct {
+	TotalRides          int     `ksql:"total_rides" json:"totalRides"`
+	CompletedRides      int     `ksql:"completed_rides" json:"completedRides"`
+	CancelledRides      int     `ksql:"cancelled_rides" json:"cancelledRides"`
+	TotalDriverEarnings float64 `ksql:"total_driver_earnings" json:"totalDriverEarnings"`
+	TotalPlatformFee    float64 `ksql:"total_platform_fee" json:"totalPlatformFee"`
+}
+
 // RideReportRow is one grouped row of a revenue report (by date, category,
 // or payment method) — GroupKey holds whichever dimension the report is
 // sliced by.
@@ -398,6 +422,53 @@ type WebhookEventRecord struct {
 	EventKey  string    `ksql:"event_key" json:"eventKey"`
 	Payload   string    `ksql:"payload" json:"-"`
 	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
+}
+
+// AuditLogEntry records one admin action that touched money or a payout
+// destination — who did it, what, when. AdminName is denormalized (kept
+// even if the admin account is later removed) so the log stays readable on
+// its own.
+type AuditLogEntry struct {
+	ID         string    `ksql:"id" json:"id"`
+	AdminID    string    `ksql:"admin_id" json:"adminId"`
+	AdminName  string    `ksql:"admin_name" json:"adminName"`
+	Action     string    `ksql:"action" json:"action"`
+	TargetType string    `ksql:"target_type" json:"targetType"`
+	TargetID   string    `ksql:"target_id" json:"targetId"`
+	Details    string    `ksql:"details" json:"details,omitempty"`
+	CreatedAt  time.Time `ksql:"created_at" json:"createdAt"`
+}
+
+type PixKeyChangeStatus string
+
+const (
+	PixKeyChangePending  PixKeyChangeStatus = "pending"
+	PixKeyChangeApproved PixKeyChangeStatus = "approved"
+	PixKeyChangeRejected PixKeyChangeStatus = "rejected"
+)
+
+const (
+	PixKeyOwnerDriver = "driver"
+	PixKeyOwnerUser   = "user"
+)
+
+// PixKeyChangeRequest is a driver's or passenger's request to change her
+// Pix key — never applied automatically; an admin must approve it first
+// (see PixKeyChangeStatus doc / migration 000025 for why).
+type PixKeyChangeRequest struct {
+	ID          string     `ksql:"id" json:"id"`
+	OwnerType   string     `ksql:"owner_type" json:"ownerType"`
+	OwnerID     string     `ksql:"owner_id" json:"ownerId"`
+	OldPixKey   string     `ksql:"old_pix_key" json:"oldPixKey,omitempty"`
+	NewPixKey   string     `ksql:"new_pix_key" json:"newPixKey"`
+	Status      string     `ksql:"status" json:"status"`
+	RequestedAt time.Time  `ksql:"requested_at" json:"requestedAt"`
+	ReviewedAt  *time.Time `ksql:"reviewed_at" json:"reviewedAt,omitempty"`
+	ReviewedBy  *string    `ksql:"reviewed_by" json:"reviewedBy,omitempty"`
+	Note        string     `ksql:"note" json:"note,omitempty"`
+
+	// Populated by the admin handler, never stored as a column directly.
+	OwnerName string `json:"ownerName,omitempty"`
 }
 
 // Notification is a message the admin panel sent to one driver or one

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -77,6 +78,14 @@ func (m *Module) ViewDriver(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	auditEntries, err := m.audit.ListForTarget(ctx, "driver", driver.ID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	pixKeyRequests, err := m.pixKeyChanges.ListForOwner(ctx, models.PixKeyOwnerDriver, driver.ID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 
 	// Best-effort: the live Woovi balance shouldn't break this whole page if
 	// the gateway isn't configured yet or is briefly unreachable.
@@ -99,6 +108,8 @@ func (m *Module) ViewDriver(c echo.Context) error {
 		"WalletTransactions": walletTransactions,
 		"HasWalletBalance":   hasWalletBalance,
 		"WalletBalance":      walletBalance,
+		"AuditEntries":       auditEntries,
+		"PixKeyRequests":     pixKeyRequests,
 	})
 }
 
@@ -149,10 +160,11 @@ func (m *Module) UpdateDriver(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	if billingMode := c.FormValue("billingMode"); billingMode != "" {
+	if billingMode := c.FormValue("billingMode"); billingMode != "" && billingMode != driver.BillingMode {
 		if err := m.billing.SetDriverBillingMode(ctx, driver.ID, models.BillingMode(billingMode)); err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
+		m.recordAudit(c, "set_driver_billing_mode", "driver", driver.ID, fmt.Sprintf("%s: de %q para %q", driver.Name, driver.BillingMode, billingMode))
 	}
 
 	return c.Redirect(http.StatusSeeOther, "/admin/drivers/"+driver.ID)
@@ -172,6 +184,11 @@ func (m *Module) ApproveDriver(c echo.Context) error {
 	// gets created later once that's filled in (re-approve, or a future
 	// "criar recebedor" retry button).
 	go m.createRecipientForDriver(driverID)
+
+	// Same idea for her Woovi revenue-wallet subaccount, using her CPF as
+	// the default Pix key — she can request a different one afterward via
+	// the app (subject to admin approval, see PixKeyRequestsPage).
+	go m.createWooviSubaccountForDriver(driverID)
 
 	return c.Redirect(http.StatusSeeOther, "/admin/drivers")
 }
@@ -208,6 +225,36 @@ func (m *Module) createRecipientForDriver(driverID string) {
 
 	if err := m.drivers.SetPagarmeRecipientID(ctx, driverID, recipient.ID); err != nil {
 		log.Printf("driver %s: created Pagar.me recipient %s but failed to save it: %v", driverID, recipient.ID, err)
+	}
+}
+
+// createWooviSubaccountForDriver auto-provisions a driver's revenue-wallet
+// subaccount using her CPF as the default Pix key, same idea (and same
+// best-effort, never-blocks-approval philosophy) as createRecipientForDriver
+// above. She can request a different key later (subject to admin approval).
+func (m *Module) createWooviSubaccountForDriver(driverID string) {
+	ctx := context.Background()
+	driver, err := m.drivers.FindByID(ctx, driverID)
+	if err != nil || driver.PixKey != "" {
+		return
+	}
+	settings, err := m.woovi.Get(ctx)
+	if err != nil || settings.AppID == "" {
+		log.Printf("driver %s: skipping Woovi subaccount creation (gateway not configured)", driverID)
+		return
+	}
+	cpf := woovi.OnlyDigits(driver.CPF)
+	if cpf == "" {
+		return
+	}
+
+	canonical, err := woovi.EnsureRecipient(settings.AppID, woovi.BaseURL(settings.Environment), cpf, driver.Name)
+	if err != nil {
+		log.Printf("driver %s: failed to auto-provision Woovi subaccount: %v", driverID, err)
+		return
+	}
+	if err := m.billing.SetDriverPixKey(ctx, driverID, canonical); err != nil {
+		log.Printf("driver %s: created Woovi subaccount but failed to save pix key: %v", driverID, err)
 	}
 }
 

@@ -14,21 +14,24 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"chamaelas-api/internal/geo"
+	"chamaelas-api/internal/googleauth"
 	"chamaelas-api/internal/models"
 	"chamaelas-api/internal/repository"
 	"chamaelas-api/internal/woovi"
 )
 
 type DriverHandler struct {
-	drivers       *repository.DriverRepository
-	categories    *repository.CategoryRepository
-	rides         *RideHandler
-	billing       *repository.BillingRepository
-	wooviSettings *repository.WooviSettingsRepository
+	drivers        *repository.DriverRepository
+	categories     *repository.CategoryRepository
+	rides          *RideHandler
+	billing        *repository.BillingRepository
+	wooviSettings  *repository.WooviSettingsRepository
+	pixKeyChanges  *repository.PixKeyChangeRepository
+	googleClientID string
 }
 
-func NewDriverHandler(drivers *repository.DriverRepository, categories *repository.CategoryRepository, rides *RideHandler, billing *repository.BillingRepository, wooviSettings *repository.WooviSettingsRepository) *DriverHandler {
-	return &DriverHandler{drivers: drivers, categories: categories, rides: rides, billing: billing, wooviSettings: wooviSettings}
+func NewDriverHandler(drivers *repository.DriverRepository, categories *repository.CategoryRepository, rides *RideHandler, billing *repository.BillingRepository, wooviSettings *repository.WooviSettingsRepository, pixKeyChanges *repository.PixKeyChangeRepository, googleClientID string) *DriverHandler {
+	return &DriverHandler{drivers: drivers, categories: categories, rides: rides, billing: billing, wooviSettings: wooviSettings, pixKeyChanges: pixKeyChanges, googleClientID: googleClientID}
 }
 
 func (h *DriverHandler) withCategories(ctx context.Context, driver *models.Driver) {
@@ -163,8 +166,126 @@ func (h *DriverHandler) Login(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
 	}
 
+	driver.GoogleLinked = driver.GoogleSub != nil
 	h.withCategories(ctx, driver)
+	h.ensureSubaccount(ctx, driver)
 	return c.JSON(http.StatusOK, driver)
+}
+
+// GoogleLogin resolves a Google ID token to a Driver — LOGIN ONLY, unlike
+// the passenger side: a driver profile needs CNH/vehicle/category data
+// Google can't supply, so there is no "create a new driver from Google
+// alone" branch. If neither her google_sub nor a verified-email match an
+// existing driver, she's told to sign up normally first (and can link
+// Google afterward from Profile).
+func (h *DriverHandler) GoogleLogin(c echo.Context) error {
+	var req googleLoginRequest
+	if err := c.Bind(&req); err != nil || req.IDToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "idToken is required")
+	}
+	if h.googleClientID == "" {
+		return echo.NewHTTPError(http.StatusNotImplemented, "login com Google não está configurado")
+	}
+
+	ctx := c.Request().Context()
+	claims, err := googleauth.Verify(ctx, req.IDToken, h.googleClientID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "idToken inválido")
+	}
+
+	if driver, err := h.drivers.FindByGoogleSub(ctx, claims.Sub); err == nil {
+		driver.GoogleLinked = true
+		h.withCategories(ctx, driver)
+		h.ensureSubaccount(ctx, driver)
+		return c.JSON(http.StatusOK, driver)
+	} else if !errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	if claims.EmailVerified {
+		if driver, err := h.drivers.FindByEmail(ctx, claims.Email); err == nil {
+			if err := h.drivers.SetGoogleSub(ctx, driver.ID, claims.Sub); err != nil {
+				return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+			}
+			driver.GoogleLinked = true
+			h.withCategories(ctx, driver)
+			h.ensureSubaccount(ctx, driver)
+			return c.JSON(http.StatusOK, driver)
+		} else if !errors.Is(err, repository.ErrNotFound) {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+	}
+
+	return echo.NewHTTPError(http.StatusNotFound, "nenhuma conta encontrada com esse e-mail — cadastre-se primeiro")
+}
+
+// LinkGoogleAccount lets an already-logged-in driver link her Google
+// account from Profile — same trust model as SetPixKey's caller-supplies-
+// her-own-:id pattern (this doesn't move money, so no password re-check).
+func (h *DriverHandler) LinkGoogleAccount(c echo.Context) error {
+	var req googleLoginRequest
+	if err := c.Bind(&req); err != nil || req.IDToken == "" {
+		return echo.NewHTTPError(http.StatusBadRequest, "idToken is required")
+	}
+	if h.googleClientID == "" {
+		return echo.NewHTTPError(http.StatusNotImplemented, "login com Google não está configurado")
+	}
+
+	ctx := c.Request().Context()
+	driverID := c.Param("id")
+	driver, err := h.drivers.FindByID(ctx, driverID)
+	if errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "driver not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	claims, err := googleauth.Verify(ctx, req.IDToken, h.googleClientID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusUnauthorized, "idToken inválido")
+	}
+
+	if existing, err := h.drivers.FindByGoogleSub(ctx, claims.Sub); err == nil && existing.ID != driverID {
+		return echo.NewHTTPError(http.StatusConflict, "essa conta Google já está vinculada a outro perfil")
+	} else if err != nil && !errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	if err := h.drivers.SetGoogleSub(ctx, driverID, claims.Sub); err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	driver.GoogleLinked = true
+	return c.JSON(http.StatusOK, driver)
+}
+
+// ensureSubaccount auto-provisions a Woovi subaccount (using her CPF as the
+// default Pix key) for a driver who doesn't have one yet — best-effort,
+// log-and-continue, so login never fails just because Woovi is unreachable
+// or not configured. She can always change the key afterward via SetPixKey.
+// Also called from the admin panel when a driver is approved.
+func (h *DriverHandler) ensureSubaccount(ctx context.Context, driver *models.Driver) {
+	if driver.PixKey != "" {
+		return
+	}
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil || settings.AppID == "" {
+		return
+	}
+	cpf := woovi.OnlyDigits(driver.CPF)
+	if cpf == "" {
+		return
+	}
+	canonical, err := woovi.EnsureRecipient(settings.AppID, woovi.BaseURL(settings.Environment), cpf, driver.Name)
+	if err != nil {
+		log.Printf("driver %s: failed to auto-provision Woovi subaccount: %v", driver.ID, err)
+		return
+	}
+	if err := h.billing.SetDriverPixKey(ctx, driver.ID, canonical); err != nil {
+		log.Printf("driver %s: created Woovi subaccount but failed to save pix key: %v", driver.ID, err)
+		return
+	}
+	driver.PixKey = canonical
 }
 
 func (h *DriverHandler) GetProfile(c echo.Context) error {
@@ -272,11 +393,12 @@ type setPixKeyRequest struct {
 	Password string `json:"password"`
 }
 
-// SetPixKey registers (or replaces) the Pix key backing a driver's revenue
-// wallet. Requires her password — unlike the rest of this file's driver
-// routes, this one moves real money, so trusting the :id path param alone
-// isn't acceptable (see Withdraw for the same reasoning). Only the
-// CANONICAL key Woovi returns is ever persisted, never the raw input.
+// SetPixKey files a request to change the Pix key behind a driver's revenue
+// wallet — it does NOT apply immediately. Requires her password (proving
+// it's really her asking), but the change only takes effect once an admin
+// approves it in the panel: a compromised account could otherwise redirect
+// a driver's real payout to a key that isn't hers, so a second, independent
+// check is required before any money moves differently.
 func (h *DriverHandler) SetPixKey(c echo.Context) error {
 	var req setPixKeyRequest
 	if err := c.Bind(&req); err != nil || req.PixKey == "" || req.Password == "" {
@@ -296,22 +418,10 @@ func (h *DriverHandler) SetPixKey(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusUnauthorized, "senha incorreta")
 	}
 
-	settings, err := h.wooviSettings.Get(ctx)
-	if err != nil {
+	if _, err := h.pixKeyChanges.Create(ctx, models.PixKeyOwnerDriver, driverID, driver.PixKey, req.PixKey); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	if settings.AppID == "" {
-		return echo.NewHTTPError(http.StatusServiceUnavailable, "gateway de pagamento não configurado")
-	}
-
-	canonical, err := woovi.EnsureRecipient(settings.AppID, woovi.BaseURL(settings.Environment), req.PixKey, driver.Name)
-	if err != nil {
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
-	}
-	if err := h.billing.SetDriverPixKey(ctx, driverID, canonical); err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	}
-	return c.NoContent(http.StatusNoContent)
+	return c.JSON(http.StatusAccepted, map[string]string{"status": "pending_approval"})
 }
 
 type createCreditTopupRequest struct {

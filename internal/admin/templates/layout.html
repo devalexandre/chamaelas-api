@@ -56,13 +56,15 @@
     .tabs .tab-panel { display: none; }
     #tab-history:checked ~ .tab-nav label[for="tab-history"],
     #tab-ledger:checked ~ .tab-nav label[for="tab-ledger"],
-    #tab-wallet:checked ~ .tab-nav label[for="tab-wallet"] {
+    #tab-wallet:checked ~ .tab-nav label[for="tab-wallet"],
+    #tab-audit:checked ~ .tab-nav label[for="tab-audit"] {
       color: var(--pink-700);
       border-bottom-color: var(--pink-500);
     }
     #tab-history:checked ~ #panel-history,
     #tab-ledger:checked ~ #panel-ledger,
-    #tab-wallet:checked ~ #panel-wallet {
+    #tab-wallet:checked ~ #panel-wallet,
+    #tab-audit:checked ~ #panel-audit {
       display: block;
     }
     .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.9rem; border-radius: 8px; border: none; font-weight: 700; font-size: 0.82rem; cursor: pointer; text-decoration: none; }
@@ -116,6 +118,7 @@
       <a class="link{{if eq .Active "categories"}} active{{end}}" href="/admin/categories">Categorias</a>
       <a class="link{{if eq .Active "pricing"}} active{{end}}" href="/admin/pricing">Tarifas</a>
       <a class="link{{if eq .Active "billing"}} active{{end}}" href="/admin/billing">Financeiro</a>
+      <a class="link{{if eq .Active "pix-key-requests"}} active{{end}}" href="/admin/pix-key-requests">Trocas de chave Pix</a>
       <a class="link{{if eq .Active "notifications"}} active{{end}}" href="/admin/notifications">Notificações</a>
       <a class="link{{if eq .Active "settings"}} active{{end}}" href="/admin/settings">Configurações</a>
       <span class="nav-group-label">Relatórios</span>
