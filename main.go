@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"log"
 
 	"github.com/joho/godotenv"
@@ -23,21 +24,21 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-func main() {
-	_ = godotenv.Load() // optional: only present in local dev
-
-	cfg := config.Load()
+// buildApp wires every repository/handler and route exactly once — used by
+// main() to actually serve, and directly by tests (via httptest) so
+// integration tests exercise the real routing/DI graph instead of a
+// hand-rolled subset of it.
+func buildApp(cfg config.Config) (*echo.Echo, error) {
 	ctx := context.Background()
 
 	if err := database.RunMigrations(cfg, migrationsFS); err != nil {
-		log.Fatalf("failed to run migrations: %v", err)
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	db, err := database.Connect(ctx, cfg)
 	if err != nil {
-		log.Fatalf("failed to connect to database (driver=%s): %v", cfg.DBDriver, err)
+		return nil, fmt.Errorf("failed to connect to database (driver=%s): %w", cfg.DBDriver, err)
 	}
-	defer db.Close()
 
 	userRepo := repository.NewUserRepository(db, cfg)
 	userCreditRepo := repository.NewUserCreditRepository(db, cfg)
@@ -57,7 +58,7 @@ func main() {
 
 	authHandler := handlers.NewAuthHandler(userRepo, userCreditRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
-	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo)
+	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, userCreditRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo)
 	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
 	settingsHandler := handlers.NewSettingsHandler(billingRepo)
@@ -65,7 +66,7 @@ func main() {
 
 	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, userCreditRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo, pixKeyChangeRepo, auditRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
-		log.Fatalf("failed to bootstrap admin account: %v", err)
+		return nil, fmt.Errorf("failed to bootstrap admin account: %w", err)
 	}
 
 	e := echo.New()
@@ -127,6 +128,18 @@ func main() {
 	api.POST("/rides/:id/start", rideHandler.Start)
 	api.POST("/rides/:id/complete", rideHandler.Complete)
 	api.POST("/rides/:id/rating", rideHandler.Rate)
+
+	return e, nil
+}
+
+func main() {
+	_ = godotenv.Load() // optional: only present in local dev
+
+	cfg := config.Load()
+	e, err := buildApp(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Printf("chamaelas-api listening on :%s (db driver: %s)", cfg.Port, cfg.DBDriver)
 	log.Printf("admin panel at http://localhost:%s/admin", cfg.Port)

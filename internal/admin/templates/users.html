@@ -13,7 +13,7 @@
         <td>{{.Name}}</td>
         <td>{{.Email}}</td>
         <td>{{.Phone}}</td>
-        <td>{{.CreatedAt.Format "02/01/2006"}}</td>
+        <td>{{(toLocal .CreatedAt).Format "02/01/2006"}}</td>
       </tr>
       {{end}}
     </tbody>

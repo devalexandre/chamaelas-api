@@ -57,7 +57,7 @@
     <tbody>
       {{range .Recent}}
       <tr>
-        <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+        <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
         <td>{{.RecipientName}} <span class="pill pill-inactive">{{if eq .RecipientType "driver"}}motorista{{else}}passageira{{end}}</span></td>
         <td>{{.Title}}</td>
         <td>{{.Message}}</td>

@@ -29,14 +29,15 @@ type RideHandler struct {
 	rides         *repository.RideRepository
 	drivers       *repository.DriverRepository
 	users         *repository.UserRepository
+	userCredit    *repository.UserCreditRepository
 	billing       *repository.BillingRepository
 	cities        *repository.CityRepository
 	categories    *repository.CategoryRepository
 	wooviSettings *repository.WooviSettingsRepository
 }
 
-func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, users *repository.UserRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository, wooviSettings *repository.WooviSettingsRepository) *RideHandler {
-	return &RideHandler{rides: rides, drivers: drivers, users: users, billing: billing, cities: cities, categories: categories, wooviSettings: wooviSettings}
+func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, users *repository.UserRepository, userCredit *repository.UserCreditRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository, wooviSettings *repository.WooviSettingsRepository) *RideHandler {
+	return &RideHandler{rides: rides, drivers: drivers, users: users, userCredit: userCredit, billing: billing, cities: cities, categories: categories, wooviSettings: wooviSettings}
 }
 
 // normalizeCityText makes city-name comparisons ignore case and the accents
@@ -79,6 +80,12 @@ type createRideRequest struct {
 	CategoryID  string         `json:"categoryId"`
 	Origin      models.Address `json:"origin"`
 	Destination models.Address `json:"destination"`
+	// PaymentMethod is "cash" (default, unchanged behavior) or "credit" —
+	// paying with credit is settled from her prepaid users.credit_balance
+	// at ride completion (see Complete), not reserved/held here at request
+	// time; a balance check happens now purely so she can't even request a
+	// ride she can't currently afford.
+	PaymentMethod string `json:"paymentMethod"`
 }
 
 // estimateRide computes distance/duration and driverEarning (the base
@@ -125,6 +132,23 @@ func (h *RideHandler) Create(c echo.Context) error {
 	platformFee := float64(int(driverEarning*commissionRate*100)) / 100
 	price := driverEarning + platformFee
 
+	paymentMethod := req.PaymentMethod
+	if paymentMethod == "" {
+		paymentMethod = "cash"
+	}
+	if paymentMethod == "credit" {
+		user, err := h.users.FindByID(ctx, req.UserID)
+		if errors.Is(err, repository.ErrNotFound) {
+			return echo.NewHTTPError(http.StatusNotFound, "user not found")
+		}
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		if user.CreditBalance < price {
+			return echo.NewHTTPError(http.StatusUnprocessableEntity, "saldo de crédito insuficiente para essa corrida")
+		}
+	}
+
 	ride := &models.Ride{
 		ID:            uuid.NewString(),
 		UserID:        req.UserID,
@@ -136,6 +160,7 @@ func (h *RideHandler) Create(c echo.Context) error {
 		Price:         price,
 		DriverEarning: driverEarning,
 		PlatformFee:   platformFee,
+		PaymentMethod: &paymentMethod,
 		Status:        string(models.RideStatusSearching),
 		CreatedAt:     time.Now().UTC(),
 	}
@@ -417,6 +442,17 @@ func (h *RideHandler) Complete(c echo.Context) error {
 	ctx := c.Request().Context()
 	if err := h.rides.SetFinalPrice(ctx, ride.ID, ride.Price); err != nil {
 		log.Printf("ride %s: failed to set final price: %v", ride.ID, err)
+	}
+
+	if ride.PaymentMethod != nil && *ride.PaymentMethod == "credit" {
+		note := fmt.Sprintf("Corrida %s", ride.ID)
+		if _, err := h.userCredit.AdjustUserCredit(ctx, ride.UserID, -ride.Price, models.UserCreditRidePayment, &ride.ID, note); err != nil {
+			// Already checked her balance at request time, so this should be
+			// rare (e.g. a race between two rides) — log-and-continue rather
+			// than block completion on it, matching this handler's existing
+			// best-effort style for every other side effect here.
+			log.Printf("ride %s: failed to debit passenger credit: %v", ride.ID, err)
+		}
 	}
 
 	if ride.DriverID != nil {

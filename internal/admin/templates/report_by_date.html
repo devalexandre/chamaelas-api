@@ -33,7 +33,7 @@
     <tbody>
       {{range .Rows}}
       <tr>
-        <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+        <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
         <td>{{.CustomerName}}</td>
         <td>{{if .DriverName}}{{.DriverName}}{{else}}—{{end}}</td>
         <td>{{if .PaymentMethod}}{{.PaymentMethod}}{{else}}Não informado{{end}}</td>

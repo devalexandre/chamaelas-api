@@ -91,7 +91,7 @@
       <tbody>
         {{range .Rides}}
         <tr>
-          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
           <td>{{.Origin.Data.Label}} → {{.Destination.Data.Label}}</td>
           <td>
             {{if eq .Status "completed"}}<span class="pill pill-approved">Concluída</span>{{end}}
@@ -119,7 +119,7 @@
       <tbody>
         {{range .Transactions}}
         <tr>
-          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
           <td>
             {{if eq .Type "topup"}}Recarga{{end}}
             {{if eq .Type "ride_fee"}}Taxa de corrida{{end}}
@@ -150,7 +150,7 @@
       <tbody>
         {{range .WalletTransactions}}
         <tr>
-          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
           <td>
             {{if eq .Type "ride_earning"}}Ganho de corrida{{end}}
             {{if eq .Type "withdrawal"}}Saque{{end}}
@@ -178,7 +178,7 @@
       <tbody>
         {{range .AuditEntries}}
         <tr>
-          <td>{{.CreatedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04"}}</td>
           <td>{{.AdminName}}</td>
           <td>
             {{if eq .Action "adjust_driver_credit"}}Ajuste de crédito{{end}}
@@ -202,7 +202,7 @@
       <tbody>
         {{range .PixKeyRequests}}
         <tr>
-          <td>{{.RequestedAt.Format "02/01/2006 15:04"}}</td>
+          <td>{{(toLocal .RequestedAt).Format "02/01/2006 15:04"}}</td>
           <td>{{if .OldPixKey}}<code>{{.OldPixKey}}</code>{{else}}—{{end}}</td>
           <td><code>{{.NewPixKey}}</code></td>
           <td>

@@ -10,6 +10,13 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"time"
+
+	// Guarantees time.LoadLocation("America/Sao_Paulo") resolves even on a
+	// minimal container image with no system tzdata package installed
+	// (Render's Docker image, in particular) — without this, toLocal below
+	// would silently fall back to UTC in production.
+	_ "time/tzdata"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -23,9 +30,20 @@ import (
 //go:embed templates/*.html
 var templateFS embed.FS
 
+// brazilLocation is loaded once at startup — every admin-panel timestamp is
+// stored in UTC (see models.go) and must be converted to it before display,
+// since the operators reading this panel are in Brazil.
+var brazilLocation = func() *time.Location {
+	loc, err := time.LoadLocation("America/Sao_Paulo")
+	if err != nil {
+		log.Printf("admin: failed to load America/Sao_Paulo timezone, falling back to UTC: %v", err)
+		return time.UTC
+	}
+	return loc
+}()
+
 // templateFuncs are helpers the templates can't express with plain
-// html/template syntax — right now just cents-to-reais division for
-// amounts coming back from the Pagar.me API.
+// html/template syntax.
 var templateFuncs = template.FuncMap{
 	"div64": func(cents int64, divisor int) float64 {
 		return float64(cents) / float64(divisor)
@@ -38,6 +56,12 @@ var templateFuncs = template.FuncMap{
 			return 0
 		}
 		return *p
+	},
+	// toLocal converts a UTC timestamp to America/Sao_Paulo for display —
+	// every template showing a date/time should call this before .Format,
+	// never format a raw stored time.Time directly.
+	"toLocal": func(t time.Time) time.Time {
+		return t.In(brazilLocation)
 	},
 }
 

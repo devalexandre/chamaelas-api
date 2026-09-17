@@ -198,8 +198,23 @@ func RecipientWithdraw(appID, baseURL, pixKey string) (transactionID string, cen
 	return out.Transaction.CorrelationID, out.Transaction.Value, nil
 }
 
-// ChargeInput is what's needed to create a plain (no-split) Pix charge —
-// used for credit top-ups, where 100% of the value stays with the platform.
+// ChargeSplit routes part of a charge straight into a subaccount at payment
+// time — the only way real money ever lands in a subaccount's balance
+// (RecipientTransfer only ever moves balance BETWEEN subaccounts that
+// already have it; there's no API path from the platform's own main
+// balance into a subaccount after the fact). A credit top-up's split target
+// is the platform's own operational subaccount, so that subaccount holds
+// real backing money before anything ever tries to transfer out of it (see
+// RideHandler.creditWalletEarning).
+type ChargeSplit struct {
+	PixKey string
+	Cents  int
+}
+
+// ChargeInput is what's needed to create a Pix charge. Splits is optional —
+// omit it for a plain charge where 100% stays with the platform's main
+// account (fine as long as nothing downstream needs to move that money
+// into a subaccount later).
 type ChargeInput struct {
 	CorrelationID string
 	Cents         int
@@ -207,6 +222,7 @@ type ChargeInput struct {
 	CustomerName  string
 	CustomerEmail string
 	CustomerPhone string
+	Splits        []ChargeSplit
 }
 
 type ChargeResult struct {
@@ -223,11 +239,18 @@ type chargeRequestCustomer struct {
 	Phone string `json:"phone,omitempty"`
 }
 
+type chargeRequestSplit struct {
+	PixKey    string `json:"pixKey"`
+	Value     int    `json:"value"`
+	SplitType string `json:"splitType"`
+}
+
 type chargeRequest struct {
 	CorrelationID string                 `json:"correlationID"`
 	Value         int                    `json:"value"`
 	Comment       string                 `json:"comment,omitempty"`
 	Customer      *chargeRequestCustomer `json:"customer,omitempty"`
+	Splits        []chargeRequestSplit   `json:"splits,omitempty"`
 }
 
 type chargeResponse struct {
@@ -256,6 +279,9 @@ func CreateCharge(appID, baseURL string, in ChargeInput) (*ChargeResult, error) 
 	}
 	if in.CustomerName != "" || in.CustomerEmail != "" || in.CustomerPhone != "" {
 		reqBody.Customer = &chargeRequestCustomer{Name: in.CustomerName, Email: in.CustomerEmail, Phone: in.CustomerPhone}
+	}
+	for _, s := range in.Splits {
+		reqBody.Splits = append(reqBody.Splits, chargeRequestSplit{PixKey: s.PixKey, Value: s.Cents, SplitType: "SPLIT_SUB_ACCOUNT"})
 	}
 
 	status, body, err := doJSON(appID, baseURL, http.MethodPost, "/api/v1/charge", reqBody)
@@ -290,6 +316,23 @@ func CreateCharge(appID, baseURL string, in ChargeInput) (*ChargeResult, error) 
 		}
 	}
 	return result, nil
+}
+
+// TopupSplits builds the Splits a credit top-up charge should carry: the
+// full amount routed to the platform's own operational subaccount, so that
+// subaccount holds real backing money before RideHandler.creditWalletEarning
+// (or a withdrawal fee collection) ever tries to move any of it out via
+// RecipientTransfer — that endpoint only ever moves balance BETWEEN
+// subaccounts that already have it, never from the platform's untracked
+// main balance. Returns nil (a plain, un-split charge) when no operational
+// subaccount is configured yet — the top-up still succeeds and credits the
+// local ledger via the webhook either way; it just leaves driver-wallet
+// funding broken until this is configured, exactly as before.
+func TopupSplits(platformPixKey string, cents int) []ChargeSplit {
+	if platformPixKey == "" {
+		return nil
+	}
+	return []ChargeSplit{{PixKey: platformPixKey, Cents: cents}}
 }
 
 // WithdrawFeeCents is the platform's withdrawal fee: R$1.00 for a balance

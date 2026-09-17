@@ -25,7 +25,7 @@
         <td>{{if eq .OwnerType "driver"}}Motorista{{else}}Passageira{{end}}</td>
         <td>{{if .OldPixKey}}<code>{{.OldPixKey}}</code>{{else}}<span class="empty" style="padding:0;">nenhuma</span>{{end}}</td>
         <td><code>{{.NewPixKey}}</code></td>
-        <td>{{.RequestedAt.Format "02/01/2006 15:04"}}</td>
+        <td>{{(toLocal .RequestedAt).Format "02/01/2006 15:04"}}</td>
         <td>
           <div style="display:flex; gap:0.4rem;">
             <form method="post" action="/admin/pix-key-requests/{{.ID}}/approve">

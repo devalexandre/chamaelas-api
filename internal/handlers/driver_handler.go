@@ -471,6 +471,7 @@ func (h *DriverHandler) CreateCreditTopup(c echo.Context) error {
 		CustomerName:  driver.Name,
 		CustomerEmail: driver.Email,
 		CustomerPhone: driver.Phone,
+		Splits:        woovi.TopupSplits(settings.PlatformPixKey, req.AmountCents),
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
