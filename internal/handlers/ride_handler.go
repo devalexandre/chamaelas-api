@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -240,6 +241,89 @@ func (h *RideHandler) ListByUser(c echo.Context) error {
 		h.attachDriver(ctx, &rides[i])
 	}
 	return c.JSON(http.StatusOK, rides)
+}
+
+// FrequentPlaceResponse pairs a previously used address with how many times
+// this passenger has ridden to/from it — the app shows these above the
+// search box so she doesn't have to retype (or re-geocode) somewhere she's
+// already been picked up or dropped off before.
+type FrequentPlaceResponse struct {
+	Address    models.Address `json:"address"`
+	UseCount   int            `json:"useCount"`
+	LastUsedAt time.Time      `json:"lastUsedAt"`
+}
+
+const maxFrequentPlaces = 8
+
+// FrequentPlaces returns places this passenger has used at least twice (as
+// origin or destination), most-used first. It's computed on the fly from her
+// own ride history rather than kept in a separate table — that history
+// already holds every address she's ever confirmed (geocoded), so there's
+// nothing new to persist and no separate write path to keep in sync.
+func (h *RideHandler) FrequentPlaces(c echo.Context) error {
+	ctx := c.Request().Context()
+	userID := c.Param("userId")
+
+	rides, err := h.rides.ListByUser(ctx, userID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+
+	type agg struct {
+		address    models.Address
+		count      int
+		lastUsedAt time.Time
+	}
+	byKey := map[string]*agg{}
+	touch := func(addr models.Address, at time.Time) {
+		key := placeKey(addr)
+		if key == "" {
+			return
+		}
+		if a, ok := byKey[key]; ok {
+			a.count++
+			if at.After(a.lastUsedAt) {
+				a.lastUsedAt = at
+			}
+			return
+		}
+		byKey[key] = &agg{address: addr, count: 1, lastUsedAt: at}
+	}
+	for _, ride := range rides {
+		touch(ride.Origin.Data, ride.CreatedAt)
+		touch(ride.Destination.Data, ride.CreatedAt)
+	}
+
+	// Initialized (not nil) so an empty result serializes as `[]`, not
+	// `null` — matches the convention in repository.ListByUser.
+	places := make([]FrequentPlaceResponse, 0)
+	for _, a := range byKey {
+		if a.count < 2 {
+			continue
+		}
+		places = append(places, FrequentPlaceResponse{Address: a.address, UseCount: a.count, LastUsedAt: a.lastUsedAt})
+	}
+	sort.Slice(places, func(i, j int) bool {
+		if places[i].UseCount != places[j].UseCount {
+			return places[i].UseCount > places[j].UseCount
+		}
+		return places[i].LastUsedAt.After(places[j].LastUsedAt)
+	})
+	if len(places) > maxFrequentPlaces {
+		places = places[:maxFrequentPlaces]
+	}
+	return c.JSON(http.StatusOK, places)
+}
+
+// placeKey normalizes an address to a stable identity for grouping — two
+// searches for "the same place" can produce slightly different formatted
+// labels, so coordinates (rounded to ~11m) are the primary key when known;
+// falls back to the label when coordinates are missing.
+func placeKey(a models.Address) string {
+	if a.Lat != 0 || a.Lng != 0 {
+		return fmt.Sprintf("%.4f,%.4f", a.Lat, a.Lng)
+	}
+	return strings.ToLower(strings.TrimSpace(a.Label))
 }
 
 // CurrentForDriver lets the driver app poll for a ride it just got matched

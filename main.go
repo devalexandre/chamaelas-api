@@ -121,6 +121,7 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 
 	api.POST("/rides", rideHandler.Create)
 	api.GET("/rides", rideHandler.ListByUser)
+	api.GET("/users/:userId/frequent-places", rideHandler.FrequentPlaces)
 	api.GET("/rides/:id", rideHandler.Get)
 	api.POST("/rides/:id/cancel", rideHandler.Cancel)
 	api.POST("/rides/:id/accept", rideHandler.Accept)

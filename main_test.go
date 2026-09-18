@@ -370,3 +370,51 @@ func seedCredit(t *testing.T, cfg config.Config, userID string, amount float64) 
 		t.Fatalf("seedCredit: %v", err)
 	}
 }
+
+func TestFrequentPlaces_ReturnsOnlyPlacesUsedAtLeastTwice(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "frequent@test.com")
+
+	// "Origem"/"Destino" (createRide's default pair) each ride twice.
+	if rec := createRide(t, e, passenger.ID, ""); rec.Code != http.StatusCreated {
+		t.Fatalf("create ride 1: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if rec := createRide(t, e, passenger.ID, ""); rec.Code != http.StatusCreated {
+		t.Fatalf("create ride 2: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// A third ride reuses "Origem" but goes to a destination used nowhere else.
+	body := map[string]any{
+		"userId":      passenger.ID,
+		"categoryId":  "standard",
+		"origin":      map[string]any{"uf": "SP", "city": "São Paulo", "label": "Origem"},
+		"destination": map[string]any{"uf": "SP", "city": "São Paulo", "label": "Só uma vez"},
+	}
+	if rec := doJSON(t, e, http.MethodPost, "/api/rides", body, nil); rec.Code != http.StatusCreated {
+		t.Fatalf("create ride 3: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	var places []struct {
+		Address  struct{ Label string } `json:"address"`
+		UseCount int                    `json:"useCount"`
+	}
+	rec := doJSON(t, e, http.MethodGet, "/api/users/"+passenger.ID+"/frequent-places", nil, &places)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("frequent places: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	counts := map[string]int{}
+	for _, p := range places {
+		counts[p.Address.Label] = p.UseCount
+	}
+	if counts["Origem"] != 3 {
+		t.Errorf("Origem useCount = %d, want 3 (used in all 3 rides): %+v", counts["Origem"], places)
+	}
+	if counts["Destino"] != 2 {
+		t.Errorf("Destino useCount = %d, want 2: %+v", counts["Destino"], places)
+	}
+	if _, ok := counts["Só uma vez"]; ok {
+		t.Errorf("a place used only once must not appear in frequent places: %+v", places)
+	}
+}
