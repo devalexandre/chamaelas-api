@@ -153,7 +153,15 @@ func (h *WebhookHandler) handleRidePayment(ctx context.Context, evt *woovi.Webho
 		log.Printf("webhook: ride %s paid, but failed to load driver %s to credit wallet: %v", ride.ID, *ride.DriverID, err)
 		return
 	}
-	creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil {
+		log.Printf("webhook: ride %s paid, but failed to load woovi settings to credit wallet: %v", ride.ID, err)
+		return
+	}
+	// A pix-per-ride charge is attributed to the platform's own operational
+	// subaccount at creation (no driver is known yet at that point — see
+	// RideHandler.Create), so that's where this transfer's real money is.
+	creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, settings.PlatformPixKey, ride.ID, ride.DriverEarning)
 }
 
 func (h *WebhookHandler) handlePassengerTopup(ctx context.Context, evt *woovi.WebhookEvent) {

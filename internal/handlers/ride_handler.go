@@ -632,6 +632,7 @@ func (h *RideHandler) Complete(c echo.Context) error {
 		log.Printf("ride %s: failed to set final price: %v", ride.ID, err)
 	}
 
+	var passenger *models.User
 	if ride.PaymentMethod != nil && *ride.PaymentMethod == "credit" {
 		note := fmt.Sprintf("Corrida %s", ride.ID)
 		if _, err := h.userCredit.AdjustUserCredit(ctx, ride.UserID, -ride.Price, models.UserCreditRidePayment, &ride.ID, note); err != nil {
@@ -640,6 +641,11 @@ func (h *RideHandler) Complete(c echo.Context) error {
 			// than block completion on it, matching this handler's existing
 			// best-effort style for every other side effect here.
 			log.Printf("ride %s: failed to debit passenger credit: %v", ride.ID, err)
+		}
+		if u, err := h.users.FindByID(ctx, ride.UserID); err == nil {
+			passenger = u
+		} else {
+			log.Printf("ride %s: failed to load passenger to settle real Pix transfer: %v", ride.ID, err)
 		}
 	}
 
@@ -651,14 +657,10 @@ func (h *RideHandler) Complete(c echo.Context) error {
 		// and has ride.PlatformFee debited from her balance right here —
 		// same result, different collection point.
 		if err == nil && driver.BillingMode == string(models.BillingModePrepaid) {
-			fee := -ride.PlatformFee
-			note := fmt.Sprintf("Taxa da corrida %s", ride.ID)
-			if _, err := h.billing.AdjustCredit(ctx, driver.ID, fee, models.CreditTransactionRideFee, &ride.ID, note); err != nil {
-				log.Printf("ride %s: failed to debit prepaid credit: %v", ride.ID, err)
-			}
+			h.settlePrepaidCommission(ctx, driver, ride)
 		}
 		if err == nil {
-			h.settleDriverEarningIfPaid(ctx, driver, ride)
+			h.settleDriverEarning(ctx, driver, passenger, ride)
 		}
 	}
 
@@ -678,22 +680,94 @@ func (h *RideHandler) Complete(c echo.Context) error {
 // ride — see creditDriverWalletEarning's doc for why a cash ride never
 // reaches it. A pix ride whose charge hasn't confirmed yet by completion
 // time is left for WebhookHandler.handleRidePayment to settle once it does.
-func (h *RideHandler) settleDriverEarningIfPaid(ctx context.Context, driver *models.Driver, ride *models.Ride) {
+// settleDriverEarning credits the driver's real earning for this ride into
+// her own Woovi subaccount, sourced from wherever the platform actually
+// collected the fare for THIS ride: the passenger's own subaccount for a
+// "credit" ride (her prior top-up money is sitting right there), or the
+// platform's operational subaccount for a "pix" ride whose charge already
+// confirmed. A "cash" ride never reaches here at all — the driver already
+// has that money in hand directly from the passenger.
+func (h *RideHandler) settleDriverEarning(ctx context.Context, driver *models.Driver, passenger *models.User, ride *models.Ride) {
 	paymentMethod := ""
 	if ride.PaymentMethod != nil {
 		paymentMethod = *ride.PaymentMethod
 	}
 	switch paymentMethod {
 	case "credit":
-		creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
+		h.settleCreditRidePayment(ctx, driver, passenger, ride)
 	case "pix":
-		if ride.AmountPaid != nil {
-			creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
+		if ride.AmountPaid == nil {
+			if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "aguardando confirmação do pagamento Pix"); err != nil {
+				log.Printf("ride %s: failed to record pending-pix wallet note: %v", ride.ID, err)
+			}
 			return
 		}
-		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "aguardando confirmação do pagamento Pix"); err != nil {
-			log.Printf("ride %s: failed to record pending-pix wallet note: %v", ride.ID, err)
+		settings, err := h.wooviSettings.Get(ctx)
+		if err != nil {
+			log.Printf("ride %s: failed to load woovi settings to settle pix earning: %v", ride.ID, err)
+			return
 		}
+		creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, settings.PlatformPixKey, ride.ID, ride.DriverEarning)
+	}
+}
+
+// settleCreditRidePayment moves the ride's fare, for real, out of the
+// passenger's own subaccount (where her prior "recarga de crédito" top-up
+// landed) — the driver's cut to her subaccount, the platform's commission
+// to the operational subaccount. Both are real RecipientTransfer calls, not
+// just the local credit_balance/wallet_transactions bookkeeping (which
+// Complete's caller already did/does separately) — that bookkeeping is what
+// the app's own UI reads, but without this, the real money behind those
+// numbers never actually moves.
+func (h *RideHandler) settleCreditRidePayment(ctx context.Context, driver *models.Driver, passenger *models.User, ride *models.Ride) {
+	if passenger == nil || passenger.PixKey == "" {
+		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "passageira sem subconta — repasse real não foi feito"); err != nil {
+			log.Printf("ride %s: failed to record skipped wallet credit: %v", ride.ID, err)
+		}
+		return
+	}
+
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil {
+		log.Printf("ride %s: failed to load woovi settings to settle credit payment: %v", ride.ID, err)
+		return
+	}
+
+	creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, passenger.PixKey, ride.ID, ride.DriverEarning)
+
+	if settings.AppID == "" || settings.PlatformPixKey == "" || ride.PlatformFee <= 0 {
+		return
+	}
+	feeCents := int(ride.PlatformFee * 100)
+	baseURL := woovi.BaseURL(settings.Environment)
+	if err := woovi.RecipientTransfer(settings.AppID, baseURL, passenger.PixKey, settings.PlatformPixKey, feeCents); err != nil {
+		log.Printf("ride %s: failed to transfer platform fee out of passenger's credit: %v", ride.ID, err)
+	}
+}
+
+// settlePrepaidCommission both debits the driver's local prepaid-credit
+// ledger (what the app's own UI shows as her balance) AND moves the same
+// amount for real, out of her own Woovi subaccount into the platform's —
+// without this second part, her displayed balance would drop but the real
+// money behind it would just sit in her subaccount forever, uncollected.
+func (h *RideHandler) settlePrepaidCommission(ctx context.Context, driver *models.Driver, ride *models.Ride) {
+	fee := -ride.PlatformFee
+	note := fmt.Sprintf("Taxa da corrida %s", ride.ID)
+	if _, err := h.billing.AdjustCredit(ctx, driver.ID, fee, models.CreditTransactionRideFee, &ride.ID, note); err != nil {
+		log.Printf("ride %s: failed to debit prepaid credit: %v", ride.ID, err)
+	}
+
+	if driver.PixKey == "" || ride.PlatformFee <= 0 {
+		return
+	}
+	settings, err := h.wooviSettings.Get(ctx)
+	if err != nil || settings.AppID == "" || settings.PlatformPixKey == "" {
+		return
+	}
+	feeCents := int(ride.PlatformFee * 100)
+	baseURL := woovi.BaseURL(settings.Environment)
+	if err := woovi.RecipientTransfer(settings.AppID, baseURL, driver.PixKey, settings.PlatformPixKey, feeCents); err != nil {
+		log.Printf("ride %s: failed to transfer prepaid commission from driver %s: %v", ride.ID, driver.ID, err)
 	}
 }
 

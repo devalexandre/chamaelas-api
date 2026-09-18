@@ -320,6 +320,10 @@ func (h *AuthHandler) CreateCreditTopup(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
+	if user.PixKey == "" {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "cadastre uma chave Pix antes de recarregar")
+	}
+
 	settings, err := h.wooviSettings.Get(ctx)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
@@ -328,6 +332,10 @@ func (h *AuthHandler) CreateCreditTopup(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "gateway de pagamento não configurado")
 	}
 
+	// Real money for this top-up lands in the PASSENGER's own subaccount,
+	// not the platform's — it's later moved OUT of it (split between the
+	// driver and the platform) when she actually pays for a ride with it —
+	// see Complete().
 	correlationID := "passenger-topup-" + uuid.NewString()
 	charge, err := woovi.CreateCharge(settings.AppID, woovi.BaseURL(settings.Environment), woovi.ChargeInput{
 		CorrelationID: correlationID,
@@ -336,7 +344,7 @@ func (h *AuthHandler) CreateCreditTopup(c echo.Context) error {
 		CustomerName:  user.Name,
 		CustomerEmail: user.Email,
 		CustomerPhone: user.Phone,
-		Subaccount:    settings.PlatformPixKey,
+		Subaccount:    user.PixKey,
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())
