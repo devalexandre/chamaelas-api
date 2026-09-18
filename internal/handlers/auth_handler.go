@@ -214,6 +214,23 @@ func (h *AuthHandler) LinkGoogleAccount(c echo.Context) error {
 	return c.JSON(http.StatusOK, user)
 }
 
+// GetProfile returns the passenger's current server-side record — used by
+// the app to refresh cached fields (credit balance, in particular) that can
+// change asynchronously (a Pix top-up confirming via webhook, a ride debit)
+// without the app itself doing anything.
+func (h *AuthHandler) GetProfile(c echo.Context) error {
+	ctx := c.Request().Context()
+	user, err := h.users.FindByID(ctx, c.Param("userId"))
+	if errors.Is(err, repository.ErrNotFound) {
+		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
+	user.GoogleLinked = user.GoogleSub != nil
+	return c.JSON(http.StatusOK, user)
+}
+
 // ensureSubaccount auto-provisions a Woovi subaccount (using her CPF as the
 // default Pix key) for a passenger who doesn't have one yet — best-effort,
 // log-and-continue, so login never fails just because Woovi is unreachable

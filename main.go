@@ -89,6 +89,7 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 	api.POST("/auth/signup", authHandler.Signup)
 	api.POST("/auth/login", authHandler.Login)
 	api.POST("/auth/google", authHandler.GoogleLogin)
+	api.GET("/users/:userId", authHandler.GetProfile)
 	api.POST("/users/:userId/link-google", authHandler.LinkGoogleAccount)
 	api.POST("/users/:userId/credit/topup", authHandler.CreateCreditTopup)
 	api.GET("/users/:userId/credit-transactions", authHandler.ListCreditTransactions)
