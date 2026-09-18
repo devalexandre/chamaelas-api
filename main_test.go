@@ -666,3 +666,58 @@ func TestAdminRideChat_RendersTranscript(t *testing.T) {
 		t.Errorf("admin ride chat page should show the passenger's name, got: %s", chatRec.Body.String())
 	}
 }
+
+// TestRidePaidWithCash_DoesNotCreditDriverWallet guards the correctness fix
+// alongside the "pix" payment method: a cash ride must never trigger a
+// wallet-earning transfer, since the driver already collected that money in
+// person from the passenger — crediting the wallet too would pay her twice
+// for the same ride out of the platform's own (unrelated) operational
+// balance. Before this fix, completing ANY ride unconditionally tried it.
+func TestRidePaidWithCash_DoesNotCreditDriverWallet(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "cash-pax@test.com")
+	driver := signupDriver(t, e, "cash-driver@test.com")
+	approveAndGoOnline(t, e, driver.ID)
+
+	rec := createRide(t, e, passenger.ID, "")
+	var ride testRide
+	if err := json.Unmarshal(rec.Body.Bytes(), &ride); err != nil {
+		t.Fatalf("unmarshal ride: %v", err)
+	}
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if ride.PaymentMethod != "cash" {
+		t.Fatalf("expected paymentMethod \"cash\" by default, got %q", ride.PaymentMethod)
+	}
+
+	runRideToCompletion(t, e, ride.ID, driver.ID)
+
+	var wallet struct {
+		Transactions []struct{ Type string } `json:"transactions"`
+	}
+	rec = doJSON(t, e, http.MethodGet, "/api/driver/"+driver.ID+"/wallet", nil, &wallet)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get wallet: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if len(wallet.Transactions) != 0 {
+		t.Errorf("a cash ride must leave no wallet_transactions row at all, got %+v", wallet.Transactions)
+	}
+}
+
+// TestRidePaidWithPix_RequiresGatewayConfigured exercises the "pix" payment
+// method's validation path — a real charge can't be created without a
+// configured Woovi gateway (never the case in this test environment), so
+// this at least confirms the request is rejected clearly instead of
+// silently creating a ride nobody can ever pay for.
+func TestRidePaidWithPix_RequiresGatewayConfigured(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "pix-pax@test.com")
+
+	rec := createRide(t, e, passenger.ID, "pix")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("create pix ride without a configured gateway: status %d body %s", rec.Code, rec.Body.String())
+	}
+}

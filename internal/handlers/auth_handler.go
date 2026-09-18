@@ -336,7 +336,7 @@ func (h *AuthHandler) CreateCreditTopup(c echo.Context) error {
 		CustomerName:  user.Name,
 		CustomerEmail: user.Email,
 		CustomerPhone: user.Phone,
-		Splits:        woovi.TopupSplits(settings.PlatformPixKey, req.AmountCents),
+		Subaccount:    settings.PlatformPixKey,
 	})
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadGateway, err.Error())

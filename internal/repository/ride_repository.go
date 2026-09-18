@@ -161,6 +161,15 @@ func (r *RideRepository) SetFinalPrice(ctx context.Context, rideID string, final
 	return err
 }
 
+// SetAmountPaid records that a ride's Pix-per-ride charge was confirmed
+// paid — called from the payment webhook, independently of ride status
+// (payment can confirm before or after the ride completes).
+func (r *RideRepository) SetAmountPaid(ctx context.Context, rideID string, amount float64) error {
+	query := fmt.Sprintf("UPDATE rides SET amount_paid = %s WHERE id = %s", database.Placeholder(r.cfg, 1), database.Placeholder(r.cfg, 2))
+	_, err := r.db.Exec(ctx, query, amount, rideID)
+	return err
+}
+
 func (r *RideRepository) SetRating(ctx context.Context, rideID string, rating int) error {
 	query := fmt.Sprintf(
 		"UPDATE rides SET rating = %s, status = %s WHERE id = %s",

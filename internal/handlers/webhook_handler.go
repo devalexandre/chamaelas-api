@@ -20,10 +20,18 @@ type WebhookHandler struct {
 	wooviSettings *repository.WooviSettingsRepository
 	billing       *repository.BillingRepository
 	userCredit    *repository.UserCreditRepository
+	rides         *repository.RideRepository
+	drivers       *repository.DriverRepository
 }
 
-func NewWebhookHandler(wooviSettings *repository.WooviSettingsRepository, billing *repository.BillingRepository, userCredit *repository.UserCreditRepository) *WebhookHandler {
-	return &WebhookHandler{wooviSettings: wooviSettings, billing: billing, userCredit: userCredit}
+func NewWebhookHandler(
+	wooviSettings *repository.WooviSettingsRepository,
+	billing *repository.BillingRepository,
+	userCredit *repository.UserCreditRepository,
+	rides *repository.RideRepository,
+	drivers *repository.DriverRepository,
+) *WebhookHandler {
+	return &WebhookHandler{wooviSettings: wooviSettings, billing: billing, userCredit: userCredit, rides: rides, drivers: drivers}
 }
 
 // HandlePaymentWebhook receives Woovi's payment notifications at
@@ -83,6 +91,8 @@ func (h *WebhookHandler) HandlePaymentWebhook(c echo.Context) error {
 		h.handleDriverTopup(ctx, evt)
 	case strings.HasPrefix(evt.CorrelationID, "passenger-topup-"):
 		h.handlePassengerTopup(ctx, evt)
+	case strings.HasPrefix(evt.CorrelationID, "ride-payment-"):
+		h.handleRidePayment(ctx, evt)
 	default:
 		log.Printf("webhook: unknown correlationID %q, ignoring", evt.CorrelationID)
 	}
@@ -112,6 +122,38 @@ func (h *WebhookHandler) handleDriverTopup(ctx context.Context, evt *woovi.Webho
 			log.Printf("webhook: failed to mark topup %s expired: %v", evt.CorrelationID, err)
 		}
 	}
+}
+
+// handleRidePayment settles a Pix-per-ride charge — the correlationID is
+// "ride-payment-<rideID>", so no separate lookup table is needed to find
+// which ride a confirmation belongs to. If the ride is already completed
+// by the time payment confirms, this is also where the driver's wallet
+// earning finally gets credited — RideHandler.Complete only does that
+// immediately for a pix ride whose payment had already confirmed by then.
+func (h *WebhookHandler) handleRidePayment(ctx context.Context, evt *woovi.WebhookEvent) {
+	rideID := strings.TrimPrefix(evt.CorrelationID, "ride-payment-")
+	ride, err := h.rides.FindByID(ctx, rideID)
+	if err != nil {
+		log.Printf("webhook: ride payment %s not found: %v", evt.CorrelationID, err)
+		return
+	}
+
+	if evt.Type != woovi.EventPaid {
+		return
+	}
+	if err := h.rides.SetAmountPaid(ctx, ride.ID, ride.Price); err != nil {
+		log.Printf("webhook: failed to mark ride %s as paid: %v", ride.ID, err)
+		return
+	}
+	if ride.Status != string(models.RideStatusCompleted) || ride.DriverID == nil {
+		return
+	}
+	driver, err := h.drivers.FindByID(ctx, *ride.DriverID)
+	if err != nil {
+		log.Printf("webhook: ride %s paid, but failed to load driver %s to credit wallet: %v", ride.ID, *ride.DriverID, err)
+		return
+	}
+	creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
 }
 
 func (h *WebhookHandler) handlePassengerTopup(ctx context.Context, evt *woovi.WebhookEvent) {

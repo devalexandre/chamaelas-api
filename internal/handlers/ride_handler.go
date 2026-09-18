@@ -89,11 +89,11 @@ type createRideRequest struct {
 	CategoryID  string         `json:"categoryId"`
 	Origin      models.Address `json:"origin"`
 	Destination models.Address `json:"destination"`
-	// PaymentMethod is "cash" (default, unchanged behavior) or "credit" —
-	// paying with credit is settled from her prepaid users.credit_balance
-	// at ride completion (see Complete), not reserved/held here at request
-	// time; a balance check happens now purely so she can't even request a
-	// ride she can't currently afford.
+	// PaymentMethod is "cash" (default, unchanged behavior), "credit"
+	// (settled from her prepaid users.credit_balance at ride completion —
+	// see Complete), or "pix" (a real Woovi charge for the ride's exact
+	// price, created right here and returned as a QR/BR code she can pay
+	// while the ride is in progress).
 	PaymentMethod string `json:"paymentMethod"`
 	// Note is optional free text for the driver (gate code, "toque a
 	// campainha", etc.) — truncated to maxRideNoteLength, trimmed to nil
@@ -102,6 +102,21 @@ type createRideRequest struct {
 }
 
 const maxRideNoteLength = 300
+
+// createRideResponse is a models.Ride with an extra pixCharge field on the
+// same JSON object — embedding (not wrapping) keeps every existing
+// ride.<field> access on the frontend working unchanged, with pixCharge
+// simply absent (omitempty) for cash/credit rides.
+type createRideResponse struct {
+	*models.Ride
+	PixCharge *pixChargeResponse `json:"pixCharge,omitempty"`
+}
+
+type pixChargeResponse struct {
+	BRCode      string     `json:"brCode"`
+	QRCodeImage string     `json:"qrCodeImage"`
+	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
+}
 
 // estimateRide computes distance/duration and driverEarning (the base
 // fare, before any platform commission). The commission is layered on top
@@ -151,17 +166,19 @@ func (h *RideHandler) Create(c echo.Context) error {
 	if paymentMethod == "" {
 		paymentMethod = "cash"
 	}
-	if paymentMethod == "credit" {
-		user, err := h.users.FindByID(ctx, req.UserID)
+
+	var user *models.User
+	if paymentMethod == "credit" || paymentMethod == "pix" {
+		user, err = h.users.FindByID(ctx, req.UserID)
 		if errors.Is(err, repository.ErrNotFound) {
 			return echo.NewHTTPError(http.StatusNotFound, "user not found")
 		}
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
-		if user.CreditBalance < price {
-			return echo.NewHTTPError(http.StatusUnprocessableEntity, "saldo de crédito insuficiente para essa corrida")
-		}
+	}
+	if paymentMethod == "credit" && user.CreditBalance < price {
+		return echo.NewHTTPError(http.StatusUnprocessableEntity, "saldo de crédito insuficiente para essa corrida")
 	}
 
 	note := strings.TrimSpace(req.Note)
@@ -188,11 +205,35 @@ func (h *RideHandler) Create(c echo.Context) error {
 		ride.Note = &note
 	}
 
+	var pixCharge *pixChargeResponse
+	if paymentMethod == "pix" {
+		settings, err := h.wooviSettings.Get(ctx)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		if settings.AppID == "" || settings.PlatformPixKey == "" {
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "pagamento via Pix não está configurado")
+		}
+		charge, err := woovi.CreateCharge(settings.AppID, woovi.BaseURL(settings.Environment), woovi.ChargeInput{
+			CorrelationID: "ride-payment-" + ride.ID,
+			Cents:         int(price * 100),
+			Comment:       "Corrida Chama Elas",
+			CustomerName:  user.Name,
+			CustomerEmail: user.Email,
+			CustomerPhone: user.Phone,
+			Subaccount:    settings.PlatformPixKey,
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadGateway, err.Error())
+		}
+		pixCharge = &pixChargeResponse{BRCode: charge.BRCode, QRCodeImage: charge.QRCodeImage, ExpiresAt: charge.ExpiresAt}
+	}
+
 	if err := h.rides.Create(ctx, ride); err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
 
-	return c.JSON(http.StatusCreated, ride)
+	return c.JSON(http.StatusCreated, createRideResponse{Ride: ride, PixCharge: pixCharge})
 }
 
 func (h *RideHandler) attachDriver(ctx context.Context, ride *models.Ride) {
@@ -617,7 +658,7 @@ func (h *RideHandler) Complete(c echo.Context) error {
 			}
 		}
 		if err == nil {
-			h.creditWalletEarning(ctx, driver, ride)
+			h.settleDriverEarningIfPaid(ctx, driver, ride)
 		}
 	}
 
@@ -632,34 +673,27 @@ func (h *RideHandler) Complete(c echo.Context) error {
 // success, or with a note explaining why on skip/failure (no Pix key yet,
 // gateway not configured, transfer error) — log-and-continue, matching the
 // rest of this function; no retry/queue for this MVP.
-func (h *RideHandler) creditWalletEarning(ctx context.Context, driver *models.Driver, ride *models.Ride) {
-	if driver.PixKey == "" {
-		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "sem chave Pix cadastrada"); err != nil {
-			log.Printf("ride %s: failed to record skipped wallet credit: %v", ride.ID, err)
-		}
-		return
+// settleDriverEarningIfPaid credits the driver's Woovi wallet with her ride
+// earning only once the platform has actually collected the fare for this
+// ride — see creditDriverWalletEarning's doc for why a cash ride never
+// reaches it. A pix ride whose charge hasn't confirmed yet by completion
+// time is left for WebhookHandler.handleRidePayment to settle once it does.
+func (h *RideHandler) settleDriverEarningIfPaid(ctx context.Context, driver *models.Driver, ride *models.Ride) {
+	paymentMethod := ""
+	if ride.PaymentMethod != nil {
+		paymentMethod = *ride.PaymentMethod
 	}
-
-	settings, err := h.wooviSettings.Get(ctx)
-	if err != nil || settings.AppID == "" || settings.PlatformPixKey == "" {
-		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "gateway de pagamento não configurado"); err != nil {
-			log.Printf("ride %s: failed to record skipped wallet credit: %v", ride.ID, err)
+	switch paymentMethod {
+	case "credit":
+		creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
+	case "pix":
+		if ride.AmountPaid != nil {
+			creditDriverWalletEarning(ctx, h.billing, h.wooviSettings, driver, ride.ID, ride.DriverEarning)
+			return
 		}
-		return
-	}
-
-	cents := int(ride.DriverEarning * 100)
-	baseURL := woovi.BaseURL(settings.Environment)
-	if err := woovi.RecipientTransfer(settings.AppID, baseURL, settings.PlatformPixKey, driver.PixKey, cents); err != nil {
-		log.Printf("ride %s: failed to credit driver %s's wallet: %v", ride.ID, driver.ID, err)
-		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "falha ao transferir: "+err.Error()); err != nil {
-			log.Printf("ride %s: failed to record failed wallet credit: %v", ride.ID, err)
+		if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, "aguardando confirmação do pagamento Pix"); err != nil {
+			log.Printf("ride %s: failed to record pending-pix wallet note: %v", ride.ID, err)
 		}
-		return
-	}
-
-	if err := h.billing.RecordWalletTransaction(ctx, driver.ID, models.WalletTransactionRideEarning, ride.DriverEarning, &ride.ID, nil, ""); err != nil {
-		log.Printf("ride %s: wallet credited but failed to record ledger row: %v", ride.ID, err)
 	}
 }
 

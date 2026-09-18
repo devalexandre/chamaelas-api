@@ -66,7 +66,7 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 	favoriteDriverHandler := handlers.NewFavoriteDriverHandler(favoriteDriverRepo)
 	rideMessageHandler := handlers.NewRideMessageHandler(rideRepo, rideMessageRepo)
 	settingsHandler := handlers.NewSettingsHandler(billingRepo)
-	webhookHandler := handlers.NewWebhookHandler(wooviSettingsRepo, billingRepo, userCreditRepo)
+	webhookHandler := handlers.NewWebhookHandler(wooviSettingsRepo, billingRepo, userCreditRepo, rideRepo, driverRepo)
 
 	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, userCreditRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo, pixKeyChangeRepo, auditRepo, rideMessageRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
