@@ -4,7 +4,7 @@
 <div class="card">
   <table>
     <thead>
-      <tr><th>Quando</th><th>Passageira</th><th>Categoria</th><th>Status</th><th>Motorista</th><th>Km</th><th>Preço</th></tr>
+      <tr><th>Quando</th><th>Passageira</th><th>Categoria</th><th>Status</th><th>Motorista</th><th>Km</th><th>Preço</th><th>Chat</th></tr>
     </thead>
     <tbody id="rides-tbody"></tbody>
   </table>
@@ -80,6 +80,14 @@
       var price = document.createElement('td');
       price.textContent = 'R$ ' + ride.price.toFixed(2);
       tr.appendChild(price);
+
+      var chat = document.createElement('td');
+      var chatLink = document.createElement('a');
+      chatLink.className = 'btn btn-ghost btn-sm';
+      chatLink.href = '/admin/rides/' + ride.id + '/chat';
+      chatLink.textContent = 'Ver chat';
+      chat.appendChild(chatLink);
+      tr.appendChild(chat);
 
       return tr;
     }

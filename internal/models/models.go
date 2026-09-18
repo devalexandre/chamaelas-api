@@ -283,10 +283,14 @@ type Ride struct {
 	AmountPaid *float64 `ksql:"amount_paid" json:"amountPaid,omitempty"`
 	// PaymentMethod is set once a real charge goes through Pagar.me
 	// ("pix", "credit_card", ...); stays nil until that integration exists.
-	PaymentMethod *string   `ksql:"payment_method" json:"paymentMethod,omitempty"`
-	Status        string    `ksql:"status" json:"status"`
-	Rating        *int      `ksql:"rating" json:"rating,omitempty"`
-	CreatedAt     time.Time `ksql:"created_at" json:"createdAt"`
+	PaymentMethod *string `ksql:"payment_method" json:"paymentMethod,omitempty"`
+	Status        string  `ksql:"status" json:"status"`
+	Rating        *int    `ksql:"rating" json:"rating,omitempty"`
+	// Note is a short free-text message the passenger can leave for the
+	// driver when requesting the ride (building access code, "toque a
+	// campainha", etc.) — nil for the common case where she left it blank.
+	Note      *string   `ksql:"note" json:"note,omitempty"`
+	CreatedAt time.Time `ksql:"created_at" json:"createdAt"`
 
 	// Populated by the handler after loading driver_id/user_id — never a
 	// column directly (no ksql tag). Driver is attached for the passenger's
@@ -295,6 +299,23 @@ type Ride struct {
 	// only ever needs pickup/destination to decide.
 	Driver *Driver `json:"driver,omitempty"`
 	User   *User   `json:"user,omitempty"`
+}
+
+const (
+	RideMessageSenderUser   = "user"
+	RideMessageSenderDriver = "driver"
+)
+
+// RideMessage is one line of the in-ride chat between passenger and driver —
+// open while the ride has a driver and isn't completed/cancelled yet (the
+// handler enforces that), kept as a read-only transcript afterward.
+type RideMessage struct {
+	ID         string    `ksql:"id" json:"id"`
+	RideID     string    `ksql:"ride_id" json:"rideId"`
+	SenderType string    `ksql:"sender_type" json:"senderType"`
+	SenderID   string    `ksql:"sender_id" json:"senderId"`
+	Body       string    `ksql:"body" json:"body"`
+	CreatedAt  time.Time `ksql:"created_at" json:"createdAt"`
 }
 
 // PricingRule is a day-of-week + time-window scope (optionally narrowed to

@@ -55,16 +55,20 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 	notificationRepo := repository.NewNotificationRepository(db, cfg)
 	pixKeyChangeRepo := repository.NewPixKeyChangeRepository(db, cfg)
 	auditRepo := repository.NewAuditRepository(db, cfg)
+	favoriteDriverRepo := repository.NewFavoriteDriverRepository(db, cfg)
+	rideMessageRepo := repository.NewRideMessageRepository(db, cfg)
 
 	authHandler := handlers.NewAuthHandler(userRepo, userCreditRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	categoryHandler := handlers.NewCategoryHandler(categoryRepo)
-	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, userCreditRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo)
+	rideHandler := handlers.NewRideHandler(rideRepo, driverRepo, userRepo, userCreditRepo, billingRepo, cityRepo, categoryRepo, wooviSettingsRepo, favoriteDriverRepo)
 	driverHandler := handlers.NewDriverHandler(driverRepo, categoryRepo, rideHandler, billingRepo, wooviSettingsRepo, pixKeyChangeRepo, cfg.GoogleClientID)
 	notificationHandler := handlers.NewNotificationHandler(notificationRepo)
+	favoriteDriverHandler := handlers.NewFavoriteDriverHandler(favoriteDriverRepo)
+	rideMessageHandler := handlers.NewRideMessageHandler(rideRepo, rideMessageRepo)
 	settingsHandler := handlers.NewSettingsHandler(billingRepo)
 	webhookHandler := handlers.NewWebhookHandler(wooviSettingsRepo, billingRepo, userCreditRepo)
 
-	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, userCreditRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo, pixKeyChangeRepo, auditRepo)
+	adminModule := admin.NewModule(cfg, adminRepo, userRepo, driverRepo, rideRepo, categoryRepo, cityRepo, billingRepo, userCreditRepo, pricingRepo, paymentSettingsRepo, wooviSettingsRepo, gatewayFeeRateRepo, notificationRepo, pixKeyChangeRepo, auditRepo, rideMessageRepo)
 	if err := adminModule.Bootstrap(ctx); err != nil {
 		return nil, fmt.Errorf("failed to bootstrap admin account: %w", err)
 	}
@@ -94,6 +98,9 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 	api.POST("/users/:userId/credit/topup", authHandler.CreateCreditTopup)
 	api.GET("/users/:userId/credit-transactions", authHandler.ListCreditTransactions)
 	api.POST("/users/:userId/pix-key", authHandler.SetPixKey)
+	api.GET("/users/:userId/favorite-drivers", favoriteDriverHandler.List)
+	api.POST("/users/:userId/favorite-drivers/:driverId", favoriteDriverHandler.Add)
+	api.DELETE("/users/:userId/favorite-drivers/:driverId", favoriteDriverHandler.Remove)
 
 	api.GET("/categories", categoryHandler.ListActive)
 	api.GET("/settings", settingsHandler.PublicSettings)
@@ -130,6 +137,8 @@ func buildApp(cfg config.Config) (*echo.Echo, error) {
 	api.POST("/rides/:id/start", rideHandler.Start)
 	api.POST("/rides/:id/complete", rideHandler.Complete)
 	api.POST("/rides/:id/rating", rideHandler.Rate)
+	api.GET("/rides/:id/messages", rideMessageHandler.List)
+	api.POST("/rides/:id/messages", rideMessageHandler.Send)
 
 	return e, nil
 }

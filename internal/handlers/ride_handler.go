@@ -27,19 +27,27 @@ const (
 )
 
 type RideHandler struct {
-	rides         *repository.RideRepository
-	drivers       *repository.DriverRepository
-	users         *repository.UserRepository
-	userCredit    *repository.UserCreditRepository
-	billing       *repository.BillingRepository
-	cities        *repository.CityRepository
-	categories    *repository.CategoryRepository
-	wooviSettings *repository.WooviSettingsRepository
+	rides           *repository.RideRepository
+	drivers         *repository.DriverRepository
+	users           *repository.UserRepository
+	userCredit      *repository.UserCreditRepository
+	billing         *repository.BillingRepository
+	cities          *repository.CityRepository
+	categories      *repository.CategoryRepository
+	wooviSettings   *repository.WooviSettingsRepository
+	favoriteDrivers *repository.FavoriteDriverRepository
 }
 
-func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, users *repository.UserRepository, userCredit *repository.UserCreditRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository, wooviSettings *repository.WooviSettingsRepository) *RideHandler {
-	return &RideHandler{rides: rides, drivers: drivers, users: users, userCredit: userCredit, billing: billing, cities: cities, categories: categories, wooviSettings: wooviSettings}
+func NewRideHandler(rides *repository.RideRepository, drivers *repository.DriverRepository, users *repository.UserRepository, userCredit *repository.UserCreditRepository, billing *repository.BillingRepository, cities *repository.CityRepository, categories *repository.CategoryRepository, wooviSettings *repository.WooviSettingsRepository, favoriteDrivers *repository.FavoriteDriverRepository) *RideHandler {
+	return &RideHandler{rides: rides, drivers: drivers, users: users, userCredit: userCredit, billing: billing, cities: cities, categories: categories, wooviSettings: wooviSettings, favoriteDrivers: favoriteDrivers}
 }
+
+// FavoriteDriverGraceWindow is how long a freshly requested ride is offered
+// only to the passenger's favorite drivers (if she has any) before opening
+// up to everyone — long enough for a favorite who's online to notice and
+// accept, short enough that the ride doesn't stall if she isn't. A var
+// (not const) so tests can shrink it instead of sleeping 25s.
+var FavoriteDriverGraceWindow = 25 * time.Second
 
 // normalizeCityText makes city-name comparisons ignore case and the accents
 // that vary between how a driver types a city in the admin panel and how a
@@ -87,7 +95,13 @@ type createRideRequest struct {
 	// time; a balance check happens now purely so she can't even request a
 	// ride she can't currently afford.
 	PaymentMethod string `json:"paymentMethod"`
+	// Note is optional free text for the driver (gate code, "toque a
+	// campainha", etc.) — truncated to maxRideNoteLength, trimmed to nil
+	// when blank so most rides store nothing at all.
+	Note string `json:"note"`
 }
+
+const maxRideNoteLength = 300
 
 // estimateRide computes distance/duration and driverEarning (the base
 // fare, before any platform commission). The commission is layered on top
@@ -150,6 +164,11 @@ func (h *RideHandler) Create(c echo.Context) error {
 		}
 	}
 
+	note := strings.TrimSpace(req.Note)
+	if len(note) > maxRideNoteLength {
+		note = note[:maxRideNoteLength]
+	}
+
 	ride := &models.Ride{
 		ID:            uuid.NewString(),
 		UserID:        req.UserID,
@@ -164,6 +183,9 @@ func (h *RideHandler) Create(c echo.Context) error {
 		PaymentMethod: &paymentMethod,
 		Status:        string(models.RideStatusSearching),
 		CreatedAt:     time.Now().UTC(),
+	}
+	if note != "" {
+		ride.Note = &note
 	}
 
 	if err := h.rides.Create(ctx, ride); err != nil {
@@ -391,6 +413,10 @@ func (h *RideHandler) GetOffer(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
+	candidates, err = h.filterByFavoriteWindow(ctx, candidates, driverID)
+	if err != nil {
+		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	}
 	if len(candidates) == 0 {
 		return c.JSON(http.StatusOK, nil)
 	}
@@ -412,7 +438,44 @@ func (h *RideHandler) GetOffer(c echo.Context) error {
 		"destination":   nearest.Destination.Data,
 		"distanceKm":    nearest.DistanceKm,
 		"driverEarning": nearest.DriverEarning,
+		"note":          nearest.Note,
 	})
+}
+
+// filterByFavoriteWindow keeps a still-searching ride out of driverID's
+// offer pool while it's inside FavoriteDriverGraceWindow, unless driverID is
+// one of that ride's passenger's favorites (or she has none, in which case
+// the window never applied to begin with). Once the window elapses the ride
+// opens up to every eligible driver as usual.
+func (h *RideHandler) filterByFavoriteWindow(ctx context.Context, candidates []models.Ride, driverID string) ([]models.Ride, error) {
+	favoriteListCache := map[string][]string{}
+	eligible := make([]models.Ride, 0, len(candidates))
+	for _, ride := range candidates {
+		if time.Since(ride.CreatedAt) >= FavoriteDriverGraceWindow {
+			eligible = append(eligible, ride)
+			continue
+		}
+		favIDs, ok := favoriteListCache[ride.UserID]
+		if !ok {
+			var err error
+			favIDs, err = h.favoriteDrivers.ListDriverIDsForUser(ctx, ride.UserID)
+			if err != nil {
+				return nil, err
+			}
+			favoriteListCache[ride.UserID] = favIDs
+		}
+		if len(favIDs) == 0 {
+			eligible = append(eligible, ride)
+			continue
+		}
+		for _, id := range favIDs {
+			if id == driverID {
+				eligible = append(eligible, ride)
+				break
+			}
+		}
+	}
+	return eligible, nil
 }
 
 type driverActionRequest struct {

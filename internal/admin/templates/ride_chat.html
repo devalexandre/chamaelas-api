@@ -1,0 +1,38 @@
+<h1>Chat da corrida</h1>
+<p class="subtitle">
+  {{.Ride.Origin.Data.Label}} → {{.Ride.Destination.Data.Label}} ·
+  {{if eq .Ride.Status "completed"}}<span class="pill pill-approved">Concluída</span>{{else if eq .Ride.Status "cancelled"}}<span class="pill pill-inactive">Cancelada</span>{{else}}<span class="pill pill-active">Em andamento</span>{{end}}
+</p>
+
+<div style="margin-bottom:1rem;">
+  <a class="btn btn-ghost btn-sm" href="/admin/rides">← Voltar para corridas</a>
+</div>
+
+<div class="card">
+  <table>
+    <tr><th style="width:180px;">Passageira</th><td>{{.PassengerName}}</td></tr>
+    <tr><th>Motorista</th><td>{{if .DriverName}}{{.DriverName}}{{else}}<span class="empty" style="padding:0;">nenhuma atribuída</span>{{end}}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h3 style="margin-top:0;">Transcrição</h3>
+  {{if not .Messages}}
+    <p class="empty">Nenhuma mensagem trocada nessa corrida.</p>
+  {{else}}
+  <table>
+    <thead>
+      <tr><th style="width:160px;">Quando</th><th style="width:120px;">De</th><th>Mensagem</th></tr>
+    </thead>
+    <tbody>
+      {{range .Messages}}
+      <tr>
+        <td>{{(toLocal .CreatedAt).Format "02/01/2006 15:04:05"}}</td>
+        <td>{{if eq .SenderType "driver"}}Motorista{{else}}Passageira{{end}}</td>
+        <td>{{.Body}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{end}}
+</div>

@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"chamaelas-api/internal/config"
 	"chamaelas-api/internal/database"
+	"chamaelas-api/internal/handlers"
 	"chamaelas-api/internal/repository"
 )
 
@@ -416,5 +419,250 @@ func TestFrequentPlaces_ReturnsOnlyPlacesUsedAtLeastTwice(t *testing.T) {
 	}
 	if _, ok := counts["Só uma vez"]; ok {
 		t.Errorf("a place used only once must not appear in frequent places: %+v", places)
+	}
+}
+
+func TestRideNote_StoredAndReturnedInOffer(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "note-pax@test.com")
+	driver := signupDriver(t, e, "note-driver@test.com")
+	approveAndGoOnline(t, e, driver.ID)
+
+	body := map[string]any{
+		"userId":      passenger.ID,
+		"categoryId":  "standard",
+		"origin":      map[string]any{"uf": "SP", "city": "São Paulo", "label": "Origem"},
+		"destination": map[string]any{"uf": "SP", "city": "São Paulo", "label": "Destino"},
+		"note":        "  Toque a campainha, apartamento 42  ",
+	}
+	var ride struct {
+		ID   string  `json:"id"`
+		Note *string `json:"note"`
+	}
+	rec := doJSON(t, e, http.MethodPost, "/api/rides", body, &ride)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if ride.Note == nil || *ride.Note != "Toque a campainha, apartamento 42" {
+		t.Fatalf("ride note = %v, want trimmed note", ride.Note)
+	}
+
+	var offer struct {
+		RideID string  `json:"rideId"`
+		Note   *string `json:"note"`
+	}
+	rec = doJSON(t, e, http.MethodGet, "/api/driver/"+driver.ID+"/rides/offer", nil, &offer)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get offer: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if offer.RideID != ride.ID {
+		t.Fatalf("offer rideId = %q, want %q", offer.RideID, ride.ID)
+	}
+	if offer.Note == nil || *offer.Note != "Toque a campainha, apartamento 42" {
+		t.Errorf("offer note = %v, want the ride's note", offer.Note)
+	}
+}
+
+func TestFavoriteDrivers_OfferedFirstThenEveryone(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "fav-pax@test.com")
+	favoriteDriver := signupDriver(t, e, "fav-driver@test.com")
+	otherDriver := signupDriver(t, e, "other-driver@test.com")
+	approveAndGoOnline(t, e, favoriteDriver.ID)
+	approveAndGoOnline(t, e, otherDriver.ID)
+
+	rec := doJSON(t, e, http.MethodPost, "/api/users/"+passenger.ID+"/favorite-drivers/"+favoriteDriver.ID, nil, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("add favorite: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	rec = createRide(t, e, passenger.ID, "")
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// Still inside the grace window: the non-favorite driver sees nothing...
+	var noOffer map[string]any
+	rec = doJSON(t, e, http.MethodGet, "/api/driver/"+otherDriver.ID+"/rides/offer", nil, &noOffer)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get offer (other driver): status %d body %s", rec.Code, rec.Body.String())
+	}
+	if noOffer != nil {
+		t.Errorf("non-favorite driver should see no offer during the grace window, got %+v", noOffer)
+	}
+
+	// ...while the favorite is offered the ride right away.
+	var favOffer struct {
+		RideID string `json:"rideId"`
+	}
+	rec = doJSON(t, e, http.MethodGet, "/api/driver/"+favoriteDriver.ID+"/rides/offer", nil, &favOffer)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get offer (favorite driver): status %d body %s", rec.Code, rec.Body.String())
+	}
+	if favOffer.RideID == "" {
+		t.Fatal("favorite driver should be offered the ride during the grace window")
+	}
+
+	// Once the grace window elapses, the ride opens up to everyone.
+	original := handlers.FavoriteDriverGraceWindow
+	handlers.FavoriteDriverGraceWindow = 1 * time.Millisecond
+	defer func() { handlers.FavoriteDriverGraceWindow = original }()
+	time.Sleep(5 * time.Millisecond)
+
+	var opened struct {
+		RideID string `json:"rideId"`
+	}
+	rec = doJSON(t, e, http.MethodGet, "/api/driver/"+otherDriver.ID+"/rides/offer", nil, &opened)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get offer (other driver, after window): status %d body %s", rec.Code, rec.Body.String())
+	}
+	if opened.RideID == "" {
+		t.Error("non-favorite driver should be offered the ride once the grace window elapses")
+	}
+}
+
+func TestRideChat_BlockedBeforeDriverAndAfterCompletion(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "chat-pax@test.com")
+	driver := signupDriver(t, e, "chat-driver@test.com")
+	approveAndGoOnline(t, e, driver.ID)
+
+	var ride testRide
+	rec := doJSON(t, e, http.MethodPost, "/api/rides", map[string]any{
+		"userId":      passenger.ID,
+		"categoryId":  "standard",
+		"origin":      map[string]any{"uf": "SP", "city": "São Paulo", "label": "Origem"},
+		"destination": map[string]any{"uf": "SP", "city": "São Paulo", "label": "Destino"},
+	}, &ride)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// No driver assigned yet — nobody to chat with.
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "user", "senderId": passenger.ID, "body": "oi?",
+	}, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("send before driver assigned: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/accept", map[string]any{"driverId": driver.ID}, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("accept ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// A passenger message impersonating the driver (or vice versa) is rejected.
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "driver", "senderId": passenger.ID, "body": "não sou a motorista",
+	}, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("spoofed sender: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	var msg struct {
+		ID   string `json:"id"`
+		Body string `json:"body"`
+	}
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "driver", "senderId": driver.ID, "body": "Cheguei, não te encontro, pode confirmar o local?",
+	}, &msg)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("driver send: status %d body %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "user", "senderId": passenger.ID, "body": "Estou no portão azul!",
+	}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("passenger send: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	var list []struct {
+		SenderType string `json:"senderType"`
+		Body       string `json:"body"`
+	}
+	rec = doJSON(t, e, http.MethodGet, "/api/rides/"+ride.ID+"/messages", nil, &list)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list messages: status %d body %s", rec.Code, rec.Body.String())
+	}
+	if len(list) != 2 || list[0].SenderType != "driver" || list[1].SenderType != "user" {
+		t.Fatalf("unexpected message list: %+v", list)
+	}
+
+	// Already accepted above — runRideToCompletion would re-accept and fail,
+	// so the remaining transitions are driven by hand here instead.
+	for _, action := range []string{"arrive", "start", "complete"} {
+		rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/"+action, map[string]any{"driverId": driver.ID}, nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("%s ride: status %d body %s", action, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Chat is locked for new messages once the ride ends...
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "user", "senderId": passenger.ID, "body": "Valeu!",
+	}, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("send after completion: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	// ...but the existing transcript stays fully readable.
+	rec = doJSON(t, e, http.MethodGet, "/api/rides/"+ride.ID+"/messages", nil, &list)
+	if rec.Code != http.StatusOK || len(list) != 2 {
+		t.Fatalf("transcript after completion: status %d body %v", rec.Code, list)
+	}
+}
+
+func TestAdminRideChat_RendersTranscript(t *testing.T) {
+	e, _ := newTestApp(t)
+	seedSaoPauloCity(t, e)
+	passenger := signupPassenger(t, e, "admin-chat-pax@test.com")
+	driver := signupDriver(t, e, "admin-chat-driver@test.com")
+	approveAndGoOnline(t, e, driver.ID)
+
+	var ride testRide
+	rec := doJSON(t, e, http.MethodPost, "/api/rides", map[string]any{
+		"userId":      passenger.ID,
+		"categoryId":  "standard",
+		"origin":      map[string]any{"uf": "SP", "city": "São Paulo", "label": "Origem"},
+		"destination": map[string]any{"uf": "SP", "city": "São Paulo", "label": "Destino"},
+	}, &ride)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/accept", map[string]any{"driverId": driver.ID}, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("accept ride: status %d body %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, e, http.MethodPost, "/api/rides/"+ride.ID+"/messages", map[string]any{
+		"senderType": "driver", "senderId": driver.ID, "body": "Cheguei, não te encontro",
+	}, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("driver send: status %d body %s", rec.Code, rec.Body.String())
+	}
+
+	form := "email=admin%40test.com&password=test1234"
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", bytes.NewBufferString(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	loginRec := httptest.NewRecorder()
+	e.ServeHTTP(loginRec, req)
+	cookies := loginRec.Result().Cookies()
+
+	req = httptest.NewRequest(http.MethodGet, "/admin/rides/"+ride.ID+"/chat", nil)
+	for _, ck := range cookies {
+		req.AddCookie(ck)
+	}
+	chatRec := httptest.NewRecorder()
+	e.ServeHTTP(chatRec, req)
+	if chatRec.Code != http.StatusOK {
+		t.Fatalf("admin ride chat: status %d body %s", chatRec.Code, chatRec.Body.String())
+	}
+	if !strings.Contains(chatRec.Body.String(), "Cheguei, não te encontro") {
+		t.Errorf("admin ride chat page should contain the message body, got: %s", chatRec.Body.String())
+	}
+	if !strings.Contains(chatRec.Body.String(), "Passageira Teste") {
+		t.Errorf("admin ride chat page should show the passenger's name, got: %s", chatRec.Body.String())
 	}
 }

@@ -93,6 +93,7 @@ type Module struct {
 	notifications *repository.NotificationRepository
 	pixKeyChanges *repository.PixKeyChangeRepository
 	audit         *repository.AuditRepository
+	rideMessages  *repository.RideMessageRepository
 }
 
 func NewModule(
@@ -112,13 +113,14 @@ func NewModule(
 	notifications *repository.NotificationRepository,
 	pixKeyChanges *repository.PixKeyChangeRepository,
 	audit *repository.AuditRepository,
+	rideMessages *repository.RideMessageRepository,
 ) *Module {
 	return &Module{
 		cfg: cfg, admins: admins, users: users, drivers: drivers,
 		rides: rides, categories: categories, cities: cities, billing: billing,
 		userCredit: userCredit, pricing: pricing, payments: payments, woovi: woovi,
 		gatewayFees: gatewayFees, notifications: notifications,
-		pixKeyChanges: pixKeyChanges, audit: audit,
+		pixKeyChanges: pixKeyChanges, audit: audit, rideMessages: rideMessages,
 	}
 }
 
@@ -137,6 +139,7 @@ func (m *Module) RegisterRoutes(e *echo.Echo) {
 	g.GET("/dashboard/drivers-online", m.DashboardDriversOnline)
 	g.GET("/rides", m.ListRides)
 	g.GET("/rides/data", m.ListRidesData)
+	g.GET("/rides/:id/chat", m.RideChat)
 	g.GET("/drivers", m.ListDrivers)
 	g.GET("/drivers/online-status", m.DriverOnlineStatuses)
 	g.GET("/drivers/:id", m.ViewDriver)
